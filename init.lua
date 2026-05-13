@@ -99,7 +99,7 @@ do
   vim.g.maplocalleader = ' '
 
   -- Set to true if you have a Nerd Font installed and selected in the terminal
-  vim.g.have_nerd_font = false
+  vim.g.have_nerd_font = true
 
   -- [[ Setting options ]]
   --  See `:help vim.o`
@@ -228,6 +228,18 @@ do
   vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
   vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
+  -- Soft-wrap: wrap long lines at word boundaries and move cursor by visual line.
+  vim.opt.wrap = true
+  vim.opt.linebreak = true
+  vim.opt.showbreak = '↪  '
+  for _, m in ipairs { 'n', 'v' } do
+    vim.keymap.set(m, 'j', 'gj', { desc = 'Down (visual line)' })
+    vim.keymap.set(m, 'k', 'gk', { desc = 'Up (visual line)' })
+    vim.keymap.set(m, '$', 'g$', { desc = 'End of visual line' })
+    vim.keymap.set(m, '^', 'g^', { desc = 'First non-blank of visual line' })
+    vim.keymap.set(m, '0', 'g0', { desc = 'Start of visual line' })
+  end
+
   -- NOTE: Some terminals have colliding keymaps or are not able to send distinct keycodes
   -- vim.keymap.set("n", "<C-S-h>", "<C-w>H", { desc = "Move window to the left" })
   -- vim.keymap.set("n", "<C-S-l>", "<C-w>L", { desc = "Move window to the right" })
@@ -347,6 +359,146 @@ do
   -- since otherwise the icons won't display properly.
   if vim.g.have_nerd_font then vim.pack.add { gh 'nvim-tree/nvim-web-devicons' } end
 
+  -- File explorer sidebar (replicates LunarVim's nvim-tree setup).
+  -- Disable netrw recommended by nvim-tree before the plugin loads.
+  vim.g.loaded_netrw = 1
+  vim.g.loaded_netrwPlugin = 1
+  vim.pack.add { gh 'nvim-tree/nvim-tree.lua' }
+  require('nvim-tree').setup {
+    view = { side = 'left', width = 30 },
+    renderer = { icons = { show = { git = false } } },
+    filters = { dotfiles = false },
+  }
+  vim.keymap.set('n', '<leader>e', '<cmd>NvimTreeToggle<cr>', { desc = 'Toggle file [E]xplorer' })
+  vim.keymap.set('n', '<leader>o', '<cmd>NvimTreeFocus<cr>', { desc = 'Focus file explorer' })
+
+  -- Top buffer bar (LunarVim-style). Cycle buffers with <S-h>/<S-l>, close with <leader>c.
+  vim.pack.add { gh 'akinsho/bufferline.nvim' }
+  require('bufferline').setup {
+    options = {
+      diagnostics = 'nvim_lsp',
+      offsets = { { filetype = 'NvimTree', text = 'File Explorer', separator = true, text_align = 'left' } },
+    },
+  }
+  vim.keymap.set('n', '<S-h>', '<cmd>BufferLineCyclePrev<cr>', { desc = 'Prev buffer' })
+  vim.keymap.set('n', '<S-l>', '<cmd>BufferLineCycleNext<cr>', { desc = 'Next buffer' })
+  vim.keymap.set('n', '<leader>c', function()
+    local cur = vim.api.nvim_get_current_buf()
+    -- Skip non-file buffers (nvim-tree, terminal, help, etc.)
+    if vim.bo[cur].buftype ~= '' then return end
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do
+      if b ~= cur and vim.api.nvim_buf_is_loaded(b) and vim.bo[b].buflisted then
+        vim.cmd 'bprevious'
+        break
+      end
+    end
+    if vim.api.nvim_buf_is_valid(cur) then vim.api.nvim_buf_delete(cur, {}) end
+  end, { desc = '[C]lose buffer' })
+
+  -- Git diff viewer. Plenary already comes in via telescope.
+  vim.pack.add { gh 'sindrets/diffview.nvim' }
+  require('diffview').setup {}
+  vim.keymap.set('n', '<leader>gd', '<cmd>DiffviewOpen<cr>', { desc = '[G]it [D]iffview open' })
+  vim.keymap.set('n', '<leader>gc', '<cmd>DiffviewClose<cr>', { desc = '[G]it diffview [C]lose' })
+  vim.keymap.set('n', '<leader>gh', '<cmd>DiffviewFileHistory %<cr>', { desc = '[G]it file [H]istory' })
+  vim.keymap.set('n', '<leader>gH', '<cmd>DiffviewFileHistory<cr>', { desc = '[G]it repo [H]istory' })
+
+  -- Terminal in a togglable pane (LunarVim's <C-t> behavior).
+  vim.pack.add { gh 'akinsho/toggleterm.nvim' }
+  require('toggleterm').setup {
+    open_mapping = [[<c-t>]],
+    direction = 'horizontal',
+    size = 15,
+    start_in_insert = true,
+  }
+
+  -- GitHub Copilot (vimscript plugin; no setup() call needed).
+  vim.pack.add { gh 'github/copilot.vim' }
+
+  -- Visual indent guides.
+  vim.pack.add { gh 'lukas-reineke/indent-blankline.nvim' }
+  require('ibl').setup {}
+
+  -- Better Python indentation than treesitter's (used because TS python indent is disabled above).
+  vim.pack.add { gh 'Vimjas/vim-python-pep8-indent' }
+
+  -- Claude Code CLI integration. Requires the `claude` CLI to be installed and on PATH.
+  -- snacks.nvim is claudecode's recommended terminal-UI dependency (nicer pane styling).
+  vim.pack.add { gh 'folke/snacks.nvim', gh 'coder/claudecode.nvim' }
+  require('snacks').setup {}
+  require('claudecode').setup {}
+
+  -- Inside Claude's terminal, <C-q> leaves terminal mode without colliding with
+  -- Claude's own <Esc>/<Esc><Esc> bindings (interrupt and rewind).
+  -- Darker background for the Claude pane so it visually separates from the editor.
+  vim.api.nvim_set_hl(0, 'ClaudeBg', { bg = '#0d0e16' })
+  local function is_claude_buf(buf)
+    return vim.bo[buf].filetype == 'claudecode' or vim.api.nvim_buf_get_name(buf):match 'claude' ~= nil
+  end
+  local function style_claude_win(win)
+    vim.wo[win].winhighlight = 'Normal:ClaudeBg,NormalNC:ClaudeBg,SignColumn:ClaudeBg,EndOfBuffer:ClaudeBg'
+  end
+
+  vim.api.nvim_create_autocmd('TermOpen', {
+    pattern = '*',
+    callback = function(args)
+      if not is_claude_buf(args.buf) then return end
+      vim.keymap.set('t', '<C-q>', [[<C-\><C-n>]], { buffer = args.buf, desc = 'Exit Claude terminal mode' })
+      -- Close the Claude pane outright from terminal mode (single keystroke).
+      vim.keymap.set('t', '<M-q>', [[<C-\><C-n><cmd>ClaudeCodeClose<cr>]], { buffer = args.buf, desc = 'Close Claude pane' })
+      -- In normal mode of the Claude buffer, plain `q` closes the pane (no recording macros here).
+      vim.keymap.set('n', 'q', '<cmd>ClaudeCodeClose<cr>', { buffer = args.buf, desc = 'Close Claude pane' })
+      vim.keymap.set('n', '<leader>al', function()
+        vim.cmd 'redraw!'
+        local job = vim.b[args.buf].terminal_job_id
+        if job then vim.fn.chansend(job, '\012') end -- ^L = redraw to most TUIs
+      end, { buffer = args.buf, desc = '[A]I claude re[L]oad screen' })
+      style_claude_win(vim.api.nvim_get_current_win())
+
+      -- `:q` typed inside the Claude pane hides the pane instead of killing the window.
+      -- (`:q!` still works as a real force-quit if you need it.)
+      vim.cmd 'cabbrev <buffer> q ClaudeCodeClose'
+
+      -- When the Claude process exits (e.g. Ctrl-C twice), wipe the terminal buffer
+      -- instead of leaving a "[Process exited 0]" zombie.
+      vim.api.nvim_create_autocmd('TermClose', {
+        buffer = args.buf,
+        callback = function()
+          vim.schedule(function()
+            if vim.api.nvim_buf_is_valid(args.buf) then vim.api.nvim_buf_delete(args.buf, { force = true }) end
+          end)
+        end,
+      })
+    end,
+  })
+
+  -- Re-apply darker bg whenever the Claude buffer enters a window (e.g., after toggle).
+  vim.api.nvim_create_autocmd('BufWinEnter', {
+    pattern = '*',
+    callback = function(args)
+      if is_claude_buf(args.buf) then style_claude_win(vim.api.nvim_get_current_win()) end
+    end,
+  })
+
+  -- Nudge any visible terminal to redraw when nvim itself is resized.
+  vim.api.nvim_create_autocmd('VimResized', { callback = function() vim.cmd 'redraw!' end })
+  vim.keymap.set('n', '<leader>ac', '<cmd>ClaudeCode<cr>', { desc = '[A]I [C]laude toggle' })
+  vim.keymap.set('n', '<leader>af', '<cmd>ClaudeCodeFocus<cr>', { desc = '[A]I claude [F]ocus' })
+  vim.keymap.set('n', '<leader>ar', '<cmd>ClaudeCode --resume<cr>', { desc = '[A]I claude [R]esume' })
+  vim.keymap.set('n', '<leader>aC', '<cmd>ClaudeCode --continue<cr>', { desc = '[A]I claude [C]ontinue' })
+  vim.keymap.set('n', '<leader>am', '<cmd>ClaudeCodeSelectModel<cr>', { desc = '[A]I claude select [M]odel' })
+  vim.keymap.set('n', '<leader>ab', '<cmd>ClaudeCodeAdd %<cr>', { desc = '[A]I claude add [B]uffer' })
+  vim.keymap.set('v', '<leader>as', '<cmd>ClaudeCodeSend<cr>', { desc = '[A]I claude [S]end selection' })
+  -- In NvimTree / netrw / oil, <leader>as adds the highlighted file or dir to Claude's context.
+  vim.api.nvim_create_autocmd('FileType', {
+    pattern = { 'NvimTree', 'neo-tree', 'oil', 'minifiles', 'netrw' },
+    callback = function(args)
+      vim.keymap.set('n', '<leader>as', '<cmd>ClaudeCodeTreeAdd<cr>', { buffer = args.buf, desc = '[A]I claude add file from tree' })
+    end,
+  })
+  vim.keymap.set('n', '<leader>aa', '<cmd>ClaudeCodeDiffAccept<cr>', { desc = '[A]I claude diff [A]ccept' })
+  vim.keymap.set('n', '<leader>ad', '<cmd>ClaudeCodeDiffDeny<cr>', { desc = '[A]I claude diff [D]eny' })
+
   -- Here is a more advanced configuration example that passes options to `gitsigns.nvim`
   --
   -- See `:help gitsigns` to understand what each configuration key does.
@@ -365,14 +517,17 @@ do
   -- Useful plugin to show you pending keybinds.
   vim.pack.add { gh 'folke/which-key.nvim' }
   require('which-key').setup {
+    preset = 'modern', -- rounded borders + arrow-style layout (LazyVim look)
     -- Delay between pressing a key and opening which-key (milliseconds)
     delay = 0,
     icons = { mappings = vim.g.have_nerd_font },
     -- Document existing key chains
     spec = {
-      { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
-      { '<leader>t', group = '[T]oggle' },
-      { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
+      { '<leader>a', group = 'AI / Claude' },
+      { '<leader>g', group = 'Git' },
+      { '<leader>s', group = 'Search', mode = { 'n', 'v' } },
+      { '<leader>t', group = 'Trouble / Toggle' },
+      { '<leader>h', group = 'Git Hunk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
     },
   }
@@ -688,7 +843,27 @@ do
   local servers = {
     -- clangd = {},
     -- gopls = {},
-    -- pyright = {},
+    basedpyright = {
+      settings = {
+        basedpyright = {
+          analysis = {
+            typeCheckingMode = 'standard',
+            diagnosticSeverityOverrides = {
+              reportAny = 'none',
+              reportExplicitAny = 'none',
+              reportImplicitOverride = 'none',
+              reportUnusedCallResult = 'none',
+              reportMissingTypeStubs = 'none',
+              reportUnknownArgumentType = 'none',
+              reportUnknownMemberType = 'none',
+              reportUnknownVariableType = 'none',
+              reportUnknownParameterType = 'none',
+              reportMissingParameterType = 'none',
+            },
+          },
+        },
+      },
+    },
     -- rust_analyzer = {},
     --
     -- Some languages (like typescript) have entire language plugins that can be useful:
@@ -898,7 +1073,10 @@ do
   vim.pack.add { { src = gh 'nvim-treesitter/nvim-treesitter', version = 'main' } }
 
   -- Ensure basic parsers are installed
-  local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
+  local parsers = {
+    'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc',
+    'python', 'javascript', 'typescript', 'tsx', 'json', 'yaml', 'css', 'rust', 'java',
+  }
   require('nvim-treesitter').install(parsers)
 
   ---@param buf integer
@@ -916,10 +1094,9 @@ do
 
     -- Check if treesitter indentation is available for this language, and if so enable it
     -- in case there is no indent query, the indentexpr will fallback to the vim's built in one
+    -- Disable treesitter indent for python; vim-python-pep8-indent handles it better.
     local has_indent_query = vim.treesitter.query.get(language, 'indents') ~= nil
-
-    -- Enable treesitter based indentation
-    if has_indent_query then vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" end
+    if has_indent_query and language ~= 'python' then vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" end
   end
 
   local available_parsers = require('nvim-treesitter').get_available()
