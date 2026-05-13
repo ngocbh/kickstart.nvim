@@ -407,8 +407,8 @@ do
   vim.pack.add { gh 'akinsho/toggleterm.nvim' }
   require('toggleterm').setup {
     open_mapping = [[<c-t>]],
-    direction = 'horizontal',
-    size = 15,
+    direction = 'float',
+    float_opts = { border = 'rounded' },
     start_in_insert = true,
   }
 
