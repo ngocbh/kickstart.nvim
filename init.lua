@@ -366,8 +366,20 @@ do
   vim.pack.add { gh 'nvim-tree/nvim-tree.lua' }
   require('nvim-tree').setup {
     view = { side = 'left', width = 30 },
-    renderer = { icons = { show = { git = false } } },
-    filters = { dotfiles = false },
+    renderer = {
+      icons = { show = { git = false } },
+      highlight_git = 'name', -- color the filename by git status (greys out gitignored)
+    },
+    git = { enable = true },
+    filters = { dotfiles = false, git_ignored = false },
+    -- nvim-tree's default <C-t> opens a file in a new tab — override so it stays
+    -- consistent with the global <C-t> = ToggleTerm everywhere.
+    on_attach = function(bufnr)
+      local api = require 'nvim-tree.api'
+      api.config.mappings.default_on_attach(bufnr)
+      vim.keymap.del('n', '<C-t>', { buffer = bufnr })
+      vim.keymap.set('n', '<C-t>', '<cmd>ToggleTerm<cr>', { buffer = bufnr, desc = 'Toggle terminal' })
+    end,
   }
   vim.keymap.set('n', '<leader>e', '<cmd>NvimTreeToggle<cr>', { desc = 'Toggle file [E]xplorer' })
   vim.keymap.set('n', '<leader>o', '<cmd>NvimTreeFocus<cr>', { desc = 'Focus file explorer' })
@@ -378,6 +390,10 @@ do
     options = {
       diagnostics = 'nvim_lsp',
       offsets = { { filetype = 'NvimTree', text = 'File Explorer', separator = true, text_align = 'left' } },
+      -- Hide unnamed buffers (the "[No Name]" entries) from the top bar.
+      custom_filter = function(buf_number)
+        return vim.api.nvim_buf_get_name(buf_number) ~= ''
+      end,
     },
   }
   vim.keymap.set('n', '<S-h>', '<cmd>BufferLineCyclePrev<cr>', { desc = 'Prev buffer' })
@@ -518,8 +534,12 @@ do
   vim.pack.add { gh 'folke/which-key.nvim' }
   require('which-key').setup {
     preset = 'modern', -- rounded borders + arrow-style layout (LazyVim look)
-    -- Delay between pressing a key and opening which-key (milliseconds)
-    delay = 0,
+    delay = 500,
+    -- Only pop the menu when <leader> is explicitly pressed — never on mode entry,
+    -- mouse-driven visual mode, idle pauses, etc.
+    triggers = {
+      { '<leader>', mode = { 'n', 'v' } },
+    },
     icons = { mappings = vim.g.have_nerd_font },
     -- Document existing key chains
     spec = {

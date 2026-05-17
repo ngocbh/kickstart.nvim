@@ -51,9 +51,10 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 ### Navigation & buffers
 | Key | Action |
 |---|---|
-| `<space>e` | Toggle file-tree sidebar (nvim-tree) |
+| `<space>e` | Toggle file-tree sidebar (shows gitignored entries in dim/grey) |
 | `<space>o` | Focus the file-tree |
-| `<S-h>` / `<S-l>` | Previous / next buffer (bufferline) |
+| `I` (inside the tree) | Toggle visibility of gitignored entries |
+| `<S-h>` / `<S-l>` | Previous / next buffer (bufferline; unnamed buffers are hidden) |
 | `<space>c` | Close current buffer (keeps the window open) |
 | `<space><space>` | Telescope: list open buffers |
 | `<space>sf` | Telescope: find file in project |
@@ -86,7 +87,7 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 ### Terminal
 | Key | Action |
 |---|---|
-| `<C-t>` | ToggleTerm — open/close a horizontal terminal |
+| `<C-t>` | ToggleTerm — floating terminal (works from anywhere, including inside nvim-tree) |
 | `<Esc><Esc>` | Exit terminal mode (kickstart default) |
 
 ### Claude Code (AI / Claude prefix)
@@ -111,7 +112,7 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 |---|---|
 | `<space>q` | Diagnostic quickfix list |
 | `<space>f` | Format buffer (conform.nvim) |
-| `<space><leader>` (hold) | Show which-key menu (modern preset) |
+| `<space>` (hold ~500ms) | Show which-key menu (modern preset). Restricted to `<leader>` only — never pops up from mouse clicks or visual-mode entry. |
 
 ---
 

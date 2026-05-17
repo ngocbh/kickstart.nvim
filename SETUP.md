@@ -36,10 +36,10 @@ block). See the file for current line numbers.
 
 | Plugin | Purpose | Setup notes |
 |---|---|---|
-| `nvim-tree/nvim-tree.lua` | File-tree sidebar | `view.side = 'left'`, `width = 30`, `git icons off`, disable netrw before loading |
-| `akinsho/bufferline.nvim` | Top buffer bar | `diagnostics = 'nvim_lsp'`, offset for NvimTree |
+| `nvim-tree/nvim-tree.lua` | File-tree sidebar | `view.side = 'left'`, `width = 30`, `git icons off`, `git_ignored = false` (show ignored), `highlight_git = 'name'` (grey them), `on_attach` override to remap `<C-t>` → `ToggleTerm`, disable netrw before loading |
+| `akinsho/bufferline.nvim` | Top buffer bar | `diagnostics = 'nvim_lsp'`, offset for NvimTree, `custom_filter` hides unnamed `[No Name]` buffers |
 | `sindrets/diffview.nvim` | Git diff viewer | Default setup |
-| `akinsho/toggleterm.nvim` | Togglable terminal | `open_mapping = '<c-t>'`, `direction = 'horizontal'`, `size = 15` |
+| `akinsho/toggleterm.nvim` | Togglable terminal | `open_mapping = '<c-t>'`, `direction = 'float'` with rounded border, `start_in_insert = true` |
 | `github/copilot.vim` | Copilot AI suggestions | No setup() needed (vimscript plugin). One-time `:Copilot setup` after install |
 | `lukas-reineke/indent-blankline.nvim` | Indent guides | `require('ibl').setup{}` |
 | `Vimjas/vim-python-pep8-indent` | Better Python indent | No setup; takes effect via ftplugin |
@@ -98,6 +98,9 @@ block). See the file for current line numbers.
 - **which-key**: switched to `preset = 'modern'`. Registered groups for
   `<leader>a` (AI / Claude), `<leader>g` (Git), `<leader>s` (Search),
   `<leader>t` (Trouble / Toggle), `<leader>h` (Git Hunk).
+  `triggers` restricted to `{ '<leader>', mode = { 'n', 'v' } }` and
+  `delay = 500` so the popup never fires on mode-entry, mouse-driven
+  visual mode, or idle pauses — only when `<leader>` is explicitly held.
 - **Claude pane styling**: darker `Normal` background (`#0d0e16`) for the
   Claude buffer via a `ClaudeBg` highlight group and `winhighlight` set in a
   `BufWinEnter` + `TermOpen` autocmd, so the pane visually separates from the
