@@ -111,6 +111,10 @@ block). See the file for current line numbers.
 ## 6. Keymaps added
 
 ```lua
+-- VS-Code-style comment toggle (terminals send Ctrl+/ as <C-_>)
+vim.keymap.set('n', '<C-_>', 'gcc', { remap = true })
+vim.keymap.set('v', '<C-_>', 'gc',  { remap = true })
+
 -- File tree
 vim.keymap.set('n', '<leader>e', '<cmd>NvimTreeToggle<cr>')
 vim.keymap.set('n', '<leader>o', '<cmd>NvimTreeFocus<cr>')

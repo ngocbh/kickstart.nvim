@@ -228,6 +228,10 @@ do
   vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
   vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
+  -- VS-Code-style Ctrl+/ to toggle comment (most terminals send <C-_>).
+  vim.keymap.set('n', '<C-_>', 'gcc', { remap = true, desc = 'Toggle comment line' })
+  vim.keymap.set('v', '<C-_>', 'gc', { remap = true, desc = 'Toggle comment selection' })
+
   -- Soft-wrap: wrap long lines at word boundaries and move cursor by visual line.
   vim.opt.wrap = true
   vim.opt.linebreak = true

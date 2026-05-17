@@ -112,6 +112,7 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 |---|---|
 | `<space>q` | Diagnostic quickfix list |
 | `<space>f` | Format buffer (conform.nvim) |
+| `<C-/>` (terminal sends `<C-_>`) | Toggle comment on current line (or selection in visual mode). `gcc` / `gc` also work. |
 | `<space>` (hold ~500ms) | Show which-key menu (modern preset). Restricted to `<leader>` only — never pops up from mouse clicks or visual-mode entry. |
 
 ---
