@@ -36,7 +36,7 @@ block). See the file for current line numbers.
 
 | Plugin | Purpose | Setup notes |
 |---|---|---|
-| `nvim-tree/nvim-tree.lua` | File-tree sidebar | `view.side = 'left'`, `width = 30`, `git icons off`, `git_ignored = false` (show ignored), `highlight_git = 'name'` (grey them), `on_attach` override to remap `<C-t>` → `ToggleTerm`, disable netrw before loading |
+| `nvim-tree/nvim-tree.lua` | File-tree sidebar | `view.side = 'left'`, `width = 30`, `git icons off`, `git_ignored = false` (show ignored), `highlight_git = 'name'` (grey them), `update_focused_file.enable = true` (sidebar auto-tracks the focused buffer), `on_attach` override to remap `<C-t>` → `ToggleTerm`, disable netrw before loading |
 | `akinsho/bufferline.nvim` | Top buffer bar | `diagnostics = 'nvim_lsp'`, offset for NvimTree, `custom_filter` hides unnamed `[No Name]` buffers |
 | `sindrets/diffview.nvim` | Git diff viewer | Default setup |
 | `akinsho/toggleterm.nvim` | Togglable terminal | `open_mapping = '<c-t>'`, `direction = 'float'` with rounded border, `start_in_insert = true` |
@@ -115,6 +115,13 @@ block). See the file for current line numbers.
 vim.keymap.set('n', '<C-_>', 'gcc', { remap = true })
 vim.keymap.set('v', '<C-_>', 'gc',  { remap = true })
 
+-- Smart split resize (LunarVim-style chord). The arrow direction is *where the
+-- controlled boundary moves*. We use win_move_separator / win_move_statusline
+-- so the boundary moves directly without Vim picking which neighbor.
+-- <C-Left>/<C-Right>:  current window's right edge (or its left edge if rightmost)
+-- <C-Up>/<C-Down>:     current window's bottom edge (or top edge if bottommost)
+-- See init.lua for the full helper function.
+
 -- File tree
 vim.keymap.set('n', '<leader>e', '<cmd>NvimTreeToggle<cr>')
 vim.keymap.set('n', '<leader>o', '<cmd>NvimTreeFocus<cr>')
@@ -162,6 +169,28 @@ or buffer name contains `claude`):
 - `TermClose` autocmd → auto-wipes the buffer when the Claude process exits
 
 Plus a `VimResized` autocmd that calls `:redraw!` to keep TUIs in sync.
+
+## 7b. Auto-reload buffers when files change on disk
+
+For workflows where Claude (or any external process) edits files while nvim is
+open, `autoread` alone isn't enough — Vim only checks the on-disk timestamp on
+certain events. We poll on idle + focus + buffer entry:
+
+```lua
+vim.opt.autoread = true
+vim.api.nvim_create_autocmd({ 'FocusGained', 'BufEnter', 'CursorHold', 'CursorHoldI' }, {
+  pattern = '*',
+  callback = function() if vim.fn.mode() ~= 'c' then vim.cmd 'checktime' end end,
+})
+vim.api.nvim_create_autocmd('FileChangedShellPost', {
+  pattern = '*',
+  callback = function() vim.notify('File reloaded from disk', vim.log.levels.INFO) end,
+})
+```
+
+Caveat: if you have *unsaved* changes in the buffer when the file is also
+edited on disk, Vim still shows the `W12` conflict prompt because no setting
+can decide what to do in that case.
 
 ## 8. Untracked → tracked
 

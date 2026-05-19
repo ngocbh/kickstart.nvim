@@ -228,6 +228,49 @@ do
   vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
   vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
 
+  -- Split resize: arrow direction always points the way the controlled boundary moves.
+  -- Controls the RIGHT edge of the current window (or LEFT edge if rightmost).
+  -- Same idea for vertical: bottom edge (or top edge if bottommost).
+  local function resize_horizontal(step)
+    -- step > 0 → boundary moves right; < 0 → boundary moves left
+    local cur = vim.api.nvim_get_current_win()
+    if vim.fn.winnr 'l' ~= vim.fn.winnr() then
+      vim.fn.win_move_separator(cur, step) -- our right separator
+    else
+      local left = vim.fn.win_getid(vim.fn.winnr 'h')
+      if left ~= cur then vim.fn.win_move_separator(left, step) end -- the left neighbor's right separator = our left edge
+    end
+  end
+  local function resize_vertical(step)
+    local cur = vim.api.nvim_get_current_win()
+    if vim.fn.winnr 'j' ~= vim.fn.winnr() then
+      vim.fn.win_move_statusline(cur, step) -- our bottom statusline
+    else
+      local above = vim.fn.win_getid(vim.fn.winnr 'k')
+      if above ~= cur then vim.fn.win_move_statusline(above, step) end -- our top edge
+    end
+  end
+  vim.keymap.set('n', '<C-Left>', function() resize_horizontal(-5) end, { desc = 'Drag controlled edge left' })
+  vim.keymap.set('n', '<C-Right>', function() resize_horizontal(5) end, { desc = 'Drag controlled edge right' })
+  vim.keymap.set('n', '<C-Up>', function() resize_vertical(-3) end, { desc = 'Drag controlled edge up' })
+  vim.keymap.set('n', '<C-Down>', function() resize_vertical(3) end, { desc = 'Drag controlled edge down' })
+
+  -- Auto-reload buffers when the file on disk changes (e.g. Claude edits a file
+  -- in another window). Without these autocmds, autoread doesn't actually fire
+  -- until you focus the buffer; we poll on idle + focus to pick changes up
+  -- immediately and avoid the W12 "file changed" prompt.
+  vim.opt.autoread = true
+  vim.api.nvim_create_autocmd({ 'FocusGained', 'BufEnter', 'CursorHold', 'CursorHoldI' }, {
+    pattern = '*',
+    callback = function()
+      if vim.fn.mode() ~= 'c' then vim.cmd 'checktime' end
+    end,
+  })
+  vim.api.nvim_create_autocmd('FileChangedShellPost', {
+    pattern = '*',
+    callback = function() vim.notify('File reloaded from disk', vim.log.levels.INFO) end,
+  })
+
   -- VS-Code-style Ctrl+/ to toggle comment (most terminals send <C-_>).
   vim.keymap.set('n', '<C-_>', 'gcc', { remap = true, desc = 'Toggle comment line' })
   vim.keymap.set('v', '<C-_>', 'gc', { remap = true, desc = 'Toggle comment selection' })
@@ -376,6 +419,8 @@ do
     },
     git = { enable = true },
     filters = { dotfiles = false, git_ignored = false },
+    -- Highlight & reveal the currently focused buffer in the tree.
+    update_focused_file = { enable = true, update_root = false },
     -- nvim-tree's default <C-t> opens a file in a new tab — override so it stays
     -- consistent with the global <C-t> = ToggleTerm everywhere.
     on_attach = function(bufnr)

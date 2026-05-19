@@ -51,11 +51,13 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 ### Navigation & buffers
 | Key | Action |
 |---|---|
-| `<space>e` | Toggle file-tree sidebar (shows gitignored entries in dim/grey) |
+| `<space>e` | Toggle file-tree sidebar (shows gitignored entries in dim/grey; sidebar auto-follows the focused buffer) |
 | `<space>o` | Focus the file-tree |
 | `I` (inside the tree) | Toggle visibility of gitignored entries |
 | `<S-h>` / `<S-l>` | Previous / next buffer (bufferline; unnamed buffers are hidden) |
 | `<space>c` | Close current buffer (keeps the window open) |
+| `<C-Left>` / `<C-Right>` | Drag the right edge of the current split left/right (drags the *left* edge if you're in the rightmost split). 5 cols per press. |
+| `<C-Up>` / `<C-Down>` | Same idea for the bottom edge (or top edge if bottommost). 3 rows per press. |
 | `<space><space>` | Telescope: list open buffers |
 | `<space>sf` | Telescope: find file in project |
 | `<space>sg` | Telescope: live grep in project |
@@ -114,6 +116,7 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 | `<space>f` | Format buffer (conform.nvim) |
 | `<C-/>` (terminal sends `<C-_>`) | Toggle comment on current line (or selection in visual mode). `gcc` / `gc` also work. |
 | `<space>` (hold ~500ms) | Show which-key menu (modern preset). Restricted to `<leader>` only — never pops up from mouse clicks or visual-mode entry. |
+| (auto) | Buffers auto-reload when their file changes on disk (e.g. Claude edits it). A `File reloaded from disk` notification flashes when this happens. |
 
 ---
 
