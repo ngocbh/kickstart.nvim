@@ -86,16 +86,22 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 | `<space>gH` | Diffview: repo history |
 | `<space>h…` | Gitsigns hunk actions |
 
-### Terminal
+### Terminal — `<C-t>` dispatcher
+`<C-t>` is a count-aware dispatcher (floating, 95% size, rounded border):
+
 | Key | Action |
 |---|---|
-| `<C-t>` | ToggleTerm — floating terminal (works from anywhere, including inside nvim-tree) |
+| `<C-t>` | Toggle the last-used terminal (defaults to slot 1) |
+| `1<C-t>`, `3<C-t>`, … | Toggle ToggleTerm terminal #N (each count is its own terminal) |
+| `2<C-t>` | Toggle Claude as a **floating** window (slot 2 is reserved for claudecode.nvim) |
+| `<C-t>` inside a terminal | Toggle the terminal you're currently in |
 | `<Esc><Esc>` | Exit terminal mode (kickstart default) |
 
 ### Claude Code (AI / Claude prefix)
 | Key | Action |
 |---|---|
-| `<space>ac` | Toggle Claude pane |
+| `<space>ac` | Toggle Claude in the **right sidebar** |
+| `2<C-t>` | Toggle Claude as a **floating** window (see terminal dispatcher above) |
 | `<space>af` | Focus the Claude pane |
 | `<space>ar` | Resume previous session |
 | `<space>aC` | Continue last conversation |

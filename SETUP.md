@@ -39,7 +39,7 @@ block). See the file for current line numbers.
 | `nvim-tree/nvim-tree.lua` | File-tree sidebar | `view.side = 'left'`, `width = 30`, `git icons off`, `git_ignored = false` (show ignored), `highlight_git = 'name'` (grey them), `update_focused_file.enable = true` (sidebar auto-tracks the focused buffer), `on_attach` override to remap `<C-t>` → `ToggleTerm`, disable netrw before loading |
 | `akinsho/bufferline.nvim` | Top buffer bar | `diagnostics = 'nvim_lsp'`, offset for NvimTree, `custom_filter` hides unnamed `[No Name]` buffers |
 | `sindrets/diffview.nvim` | Git diff viewer | Default setup |
-| `akinsho/toggleterm.nvim` | Togglable terminal | `open_mapping = '<c-t>'`, `direction = 'float'` with rounded border, `start_in_insert = true` |
+| `akinsho/toggleterm.nvim` | Togglable terminal | `direction = 'float'` (95% size, rounded border), `start_in_insert = true`. No `open_mapping` — `<C-t>` is a custom dispatcher (see below) |
 | `github/copilot.vim` | Copilot AI suggestions | No setup() needed (vimscript plugin). One-time `:Copilot setup` after install |
 | `lukas-reineke/indent-blankline.nvim` | Indent guides | `require('ibl').setup{}` |
 | `Vimjas/vim-python-pep8-indent` | Better Python indent | No setup; takes effect via ftplugin |
@@ -154,6 +154,25 @@ vim.keymap.set('n', '<leader>gH', '<cmd>DiffviewFileHistory<cr>')
 -- <leader>am select model, <leader>ab add buffer, <leader>as send/tree-add,
 -- <leader>aa accept diff, <leader>ad deny diff
 ```
+
+## 6b. Terminal dispatcher (`<C-t>`)
+
+`<C-t>` is not bound to ToggleTerm directly. Instead a `_G.TermToggle(slot)`
+dispatcher (init.lua) routes by `vim.v.count`:
+
+- `{count}<C-t>` toggles that numbered terminal; bare `<C-t>` reopens the
+  last-used slot.
+- **Slot 2 is reserved for claudecode.nvim** — `2<C-t>` calls
+  `require('claudecode.terminal').simple_toggle{ snacks_win_opts = { position =
+  'float', width = 0.95, height = 0.95, border = 'rounded' } }`, giving Claude a
+  floating window instead of the sidebar.
+- Every other slot is a normal ToggleTerm terminal (`{slot}ToggleTerm`).
+- A terminal-mode `<C-t>` toggles whichever terminal you're currently inside
+  (Claude buffer → claude float; otherwise the ToggleTerm with that
+  `toggle_number`).
+
+`<leader>ac` still opens Claude in the right **sidebar**; the float route is
+`2<C-t>`.
 
 ## 7. Claude pane autocmds
 

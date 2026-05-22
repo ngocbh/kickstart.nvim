@@ -427,7 +427,7 @@ do
       local api = require 'nvim-tree.api'
       api.config.mappings.default_on_attach(bufnr)
       vim.keymap.del('n', '<C-t>', { buffer = bufnr })
-      vim.keymap.set('n', '<C-t>', '<cmd>ToggleTerm<cr>', { buffer = bufnr, desc = 'Toggle terminal' })
+      vim.keymap.set('n', '<C-t>', function() _G.TermToggle() end, { buffer = bufnr, desc = 'Toggle terminal ({count}; 2 = Claude)' })
     end,
   }
   vim.keymap.set('n', '<leader>e', '<cmd>NvimTreeToggle<cr>', { desc = 'Toggle file [E]xplorer' })
@@ -471,11 +471,41 @@ do
   -- Terminal in a togglable pane (LunarVim's <C-t> behavior).
   vim.pack.add { gh 'akinsho/toggleterm.nvim' }
   require('toggleterm').setup {
-    open_mapping = [[<c-t>]],
+    -- No open_mapping: <C-t> is defined below as a custom dispatcher so it can
+    -- route slot 2 to claudecode.nvim instead of a ToggleTerm terminal.
     direction = 'float',
-    float_opts = { border = 'rounded' },
+    float_opts = {
+      border = 'rounded',
+      width = function() return math.floor(vim.o.columns * 0.95) end,
+      height = function() return math.floor(vim.o.lines * 0.95) end,
+    },
     start_in_insert = true,
   }
+
+  -- Terminal dispatcher: {count}<C-t> opens terminal #count; bare <C-t> reopens
+  -- the last one used. Slot 2 = claudecode.nvim (floating); every other slot is
+  -- a ToggleTerm terminal.
+  local claude_float = { snacks_win_opts = { position = 'float', width = 0.95, height = 0.95, border = 'rounded' } }
+  local term_last_slot = 1
+  function _G.TermToggle(slot)
+    slot = slot or (vim.v.count ~= 0 and vim.v.count) or term_last_slot
+    term_last_slot = slot
+    if slot == 2 then
+      require('claudecode.terminal').simple_toggle(claude_float)
+    else
+      vim.cmd(slot .. 'ToggleTerm')
+    end
+  end
+  vim.keymap.set('n', '<C-t>', function() _G.TermToggle() end, { desc = 'Toggle terminal ({count}; 2 = Claude)' })
+  -- From inside a terminal, <C-t> toggles whichever terminal you are in.
+  vim.keymap.set('t', '<C-t>', function()
+    local buf = vim.api.nvim_get_current_buf()
+    if vim.bo[buf].filetype == 'claudecode' or vim.api.nvim_buf_get_name(buf):match 'claude' then
+      require('claudecode.terminal').simple_toggle(claude_float)
+    else
+      vim.cmd((vim.b[buf].toggle_number or '') .. 'ToggleTerm')
+    end
+  end, { desc = 'Toggle current terminal' })
 
   -- GitHub Copilot (vimscript plugin; no setup() call needed).
   vim.pack.add { gh 'github/copilot.vim' }
@@ -537,17 +567,33 @@ do
     end,
   })
 
-  -- Re-apply darker bg whenever the Claude buffer enters a window (e.g., after toggle).
+  -- Re-apply darker bg AND force Claude's TUI to repaint whenever its buffer
+  -- enters a window. Claude (React Ink) only fully redraws on a terminal-resize
+  -- (SIGWINCH), so we briefly nudge the window width by 1 col and restore it —
+  -- each change resizes the PTY and triggers a clean repaint.
   vim.api.nvim_create_autocmd('BufWinEnter', {
     pattern = '*',
     callback = function(args)
-      if is_claude_buf(args.buf) then style_claude_win(vim.api.nvim_get_current_win()) end
+      if not is_claude_buf(args.buf) then return end
+      local win = vim.api.nvim_get_current_win()
+      style_claude_win(win)
+      vim.defer_fn(function()
+        if not (vim.api.nvim_buf_is_valid(args.buf) and vim.api.nvim_win_is_valid(win)) then return end
+        if vim.api.nvim_win_get_buf(win) ~= args.buf then return end
+        local w = vim.api.nvim_win_get_width(win)
+        pcall(vim.api.nvim_win_set_width, win, w - 1)
+        vim.schedule(function()
+          if vim.api.nvim_win_is_valid(win) then pcall(vim.api.nvim_win_set_width, win, w) end
+          vim.cmd 'redraw!'
+        end)
+      end, 80)
     end,
   })
 
   -- Nudge any visible terminal to redraw when nvim itself is resized.
   vim.api.nvim_create_autocmd('VimResized', { callback = function() vim.cmd 'redraw!' end })
-  vim.keymap.set('n', '<leader>ac', '<cmd>ClaudeCode<cr>', { desc = '[A]I [C]laude toggle' })
+  vim.keymap.set('n', '<leader>ac', '<cmd>ClaudeCode<cr>', { desc = '[A]I [C]laude toggle (sidebar)' })
+  -- Claude as a floating window is reachable via 2<C-t> (see the terminal dispatcher).
   vim.keymap.set('n', '<leader>af', '<cmd>ClaudeCodeFocus<cr>', { desc = '[A]I claude [F]ocus' })
   vim.keymap.set('n', '<leader>ar', '<cmd>ClaudeCode --resume<cr>', { desc = '[A]I claude [R]esume' })
   vim.keymap.set('n', '<leader>aC', '<cmd>ClaudeCode --continue<cr>', { desc = '[A]I claude [C]ontinue' })
