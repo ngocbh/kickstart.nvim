@@ -87,14 +87,27 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 | `<space>h…` | Gitsigns hunk actions |
 
 ### Terminal — `<C-t>` dispatcher
-`<C-t>` is a count-aware dispatcher (floating, 95% size, rounded border):
+`<C-t>` is a count-aware dispatcher backed by `Snacks.terminal` (floating, rounded border; terminals
+are 95% size, same as the Claude float). Every terminal float shows a **bufferline-style tab bar** at its
+top (its own row, distinct background) listing all open terminals — `[1] Term`, `[2] Claude`, … — with
+the focused one highlighted. Each tab is **clickable** to switch, or use `{count}<C-t>`. Any terminal
+**running the `claude` CLI** (the dedicated slot-2 pane, *or* `claude` started inside an ordinary
+terminal) is labelled `[N] Claude` and, when **not focused**, changes color by state — dark orange while
+Claude is working, red while it's asking you a question, normal grey when idle/finished — while the
+focused tab is always blue.
+
+While you're **editing (no terminal float open)**, a small vertical bar/box appears on the **right edge**
+with a small cell per terminal — `1T`, `2C` (slot + Term/Claude), each a fully-colored chip on a dark
+panel (with a gap between) — colored by Claude's state (orange working, red asking, grey idle), so you can
+watch terminals without opening one. **Click a cell** to switch to that terminal (or use `{count}<C-t>`). It hides itself inside terminal floats (which show the full tab bar as their winbar) and when
+no terminals are open.
 
 | Key | Action |
 |---|---|
 | `<C-t>` | Toggle the last-used terminal (defaults to slot 1) |
-| `1<C-t>`, `3<C-t>`, … | Toggle ToggleTerm terminal #N (each count is its own terminal) |
-| `2<C-t>` | Toggle Claude as a **floating** window (slot 2 is reserved for claudecode.nvim) |
-| `<C-t>` inside a terminal | Toggle the terminal you're currently in |
+| `1<C-t>`, `3<C-t>`, … | Switch to Snacks terminal #N (each count is its own terminal, shown as tab `[N] Term` in the bar) |
+| `2<C-t>` | Switch to Claude as a **floating** window (slot 2 is reserved for claudecode.nvim) |
+| `<C-t>` inside a terminal | Hide the terminal you're currently in (then `{count}<C-t>` from normal mode to switch) |
 | `<Esc><Esc>` | Exit terminal mode (kickstart default) |
 
 ### Claude Code (AI / Claude prefix)

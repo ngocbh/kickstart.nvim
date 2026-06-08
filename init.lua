@@ -422,7 +422,7 @@ do
     -- Highlight & reveal the currently focused buffer in the tree.
     update_focused_file = { enable = true, update_root = false },
     -- nvim-tree's default <C-t> opens a file in a new tab — override so it stays
-    -- consistent with the global <C-t> = ToggleTerm everywhere.
+    -- consistent with the global <C-t> terminal toggle everywhere.
     on_attach = function(bufnr)
       local api = require 'nvim-tree.api'
       api.config.mappings.default_on_attach(bufnr)
@@ -468,24 +468,309 @@ do
   vim.keymap.set('n', '<leader>gh', '<cmd>DiffviewFileHistory %<cr>', { desc = '[G]it file [H]istory' })
   vim.keymap.set('n', '<leader>gH', '<cmd>DiffviewFileHistory<cr>', { desc = '[G]it repo [H]istory' })
 
-  -- Terminal in a togglable pane (LunarVim's <C-t> behavior).
-  vim.pack.add { gh 'akinsho/toggleterm.nvim' }
-  require('toggleterm').setup {
-    -- No open_mapping: <C-t> is defined below as a custom dispatcher so it can
-    -- route slot 2 to claudecode.nvim instead of a ToggleTerm terminal.
-    direction = 'float',
-    float_opts = {
+  -- Terminal in a togglable pane (LunarVim's <C-t> behavior). Backed by
+  -- Snacks.terminal, which is already a dependency (claudecode uses it), so no
+  -- separate terminal plugin is needed. Snacks keys terminals by `count`, so each
+  -- slot is its own persistent terminal.
+  -- A bufferline-style tab bar (winbar) sits at the top of every terminal float,
+  -- on its own row just under the border, listing every open terminal -- `[1] Term`,
+  -- `[2] Claude`, ... -- with the focused tab highlighted and its own background so
+  -- it reads separately from the terminal output below. Tabs are clickable, and
+  -- `{count}<C-t>` also switches. `%!` re-evaluates it on each redraw. See
+  -- _G.TermWinbar below.
+  local term_winbar = '%!v:lua.TermWinbar()'
+  local claude_float = {
+    snacks_win_opts = {
+      position = 'float',
+      width = 0.95,
+      height = 0.95,
       border = 'rounded',
-      width = function() return math.floor(vim.o.columns * 0.95) end,
-      height = function() return math.floor(vim.o.lines * 0.95) end,
+      wo = { winbar = term_winbar },
     },
-    start_in_insert = true,
   }
 
-  -- Terminal dispatcher: {count}<C-t> opens terminal #count; bare <C-t> reopens
-  -- the last one used. Slot 2 = claudecode.nvim (floating); every other slot is
-  -- a ToggleTerm terminal.
-  local claude_float = { snacks_win_opts = { position = 'float', width = 0.95, height = 0.95, border = 'rounded' } }
+  ---Snacks terminal options for a numbered slot (floating, 95% — matches the Claude float).
+  ---@param slot integer
+  local function term_opts(slot)
+    return {
+      count = slot,
+      win = {
+        position = 'float',
+        width = 0.95,
+        height = 0.95,
+        border = 'rounded',
+        wo = { winbar = term_winbar },
+      },
+    }
+  end
+
+  ---True if `buf` is the dedicated claudecode.nvim pane (always dispatcher slot 2).
+  local function term_is_claude_pane(buf)
+    return vim.bo[buf].filetype == 'claudecode' or vim.api.nvim_buf_get_name(buf):match 'claude' ~= nil
+  end
+
+  ---True if the Claude CLI is running in `buf` -- either the dedicated pane, or
+  ---`claude` launched inside an ordinary shell terminal. The latter is detected by
+  ---the terminal title (Claude sets it) or, failing that, the Claude TUI footer
+  ---text. Such a terminal is labelled "Claude" in the bar and gets the same state
+  ---colors / repaint as the dedicated pane.
+  local function term_running_claude(buf)
+    if term_is_claude_pane(buf) then return true end
+    local title = vim.b[buf].term_title
+    if title and title:lower():find('claude', 1, true) then return true end
+    local n = vim.api.nvim_buf_line_count(buf)
+    local bottom = table.concat(vim.api.nvim_buf_get_lines(buf, math.max(0, n - 12), n, false), '\n'):lower()
+    return bottom:find('esc to interrupt', 1, true) ~= nil or bottom:find('? for shortcuts', 1, true) ~= nil or bottom:find('to navigate', 1, true) ~= nil
+  end
+
+  ---The dispatcher slot for a terminal buffer: the claudecode pane is always slot 2,
+  ---a Snacks terminal is its `count`. Returns nil for non-terminal buffers.
+  local function term_slot_of(buf)
+    if term_is_claude_pane(buf) then return 2 end
+    local meta = vim.b[buf].snacks_terminal
+    if meta and meta.id then return meta.id end
+    return nil
+  end
+
+  ---Hide whichever terminal owns `buf` (the claudecode pane or a Snacks slot).
+  local function term_hide_buf(buf)
+    if term_is_claude_pane(buf) then
+      require('claudecode.terminal').simple_toggle(claude_float)
+      return true
+    end
+    for _, term in pairs(Snacks.terminal.list()) do
+      if term.buf == buf then
+        term:hide()
+        return true
+      end
+    end
+    return false
+  end
+
+  ---Open terminals as a slot-sorted list of { slot, buf, claude }. `claude` is true
+  ---for the dedicated pane AND any Snacks terminal currently running the Claude CLI.
+  local function term_open_slots()
+    local slots = {}
+    for _, term in pairs(Snacks.terminal.list()) do
+      if vim.api.nvim_buf_is_valid(term.buf) then
+        local slot = term_slot_of(term.buf)
+        if slot then slots[slot] = { buf = term.buf, claude = term_running_claude(term.buf) } end
+      end
+    end
+    -- Capture the claudecode pane even if claudecode manages it outside Snacks' list.
+    if not slots[2] then
+      for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_loaded(buf) and term_is_claude_pane(buf) then
+          slots[2] = { buf = buf, claude = true }
+          break
+        end
+      end
+    end
+    local keys = vim.tbl_keys(slots)
+    table.sort(keys)
+    local out = {}
+    for _, slot in ipairs(keys) do
+      out[#out + 1] = { slot = slot, buf = slots[slot].buf, claude = slots[slot].claude }
+    end
+    return out
+  end
+
+  -- Distinct bar colors (tokyonight-night palette) so the tab bar separates from
+  -- the terminal output below: a solid bg strip, with the active tab a blue chip.
+  vim.api.nvim_set_hl(0, 'TermBarActive', { fg = '#16161e', bg = '#7aa2f7', bold = true })
+  vim.api.nvim_set_hl(0, 'TermBarInactive', { fg = '#a9b1d6', bg = '#292e42' })
+  vim.api.nvim_set_hl(0, 'TermBarFill', { fg = '#565f89', bg = '#292e42' })
+  -- The right-edge terminal box uses its own palette: a dark panel/gap (`TermRbarFill`)
+  -- with each terminal a fully-colored chip on top. The grey (idle) chip is lighter
+  -- than the panel so chips stay distinct with just a dark gap between them.
+  vim.api.nvim_set_hl(0, 'TermRbarFill', { bg = '#16161e' })
+  vim.api.nvim_set_hl(0, 'TermRbarTerm', { fg = '#c0caf5', bg = '#292e42' })
+  -- Claude-tab state colors, shown only when the Claude tab is NOT focused: dark
+  -- orange while Claude is working, red while it is asking you a question. When
+  -- idle/finished it just falls back to the normal grey inactive tab.
+  vim.api.nvim_set_hl(0, 'TermBarClaudeRunning', { fg = '#16161e', bg = '#ff9e64', bold = true })
+  vim.api.nvim_set_hl(0, 'TermBarClaudeAsking', { fg = '#16161e', bg = '#f7768e', bold = true })
+
+  ---Claude's state from its terminal `buf`, by scanning the live screen (bottom
+  ---lines) of its TUI: 'running' while the "esc to interrupt" footer is shown,
+  ---'asking' when a selection menu is up -- its footer reads "↑/↓ to navigate ·
+  ---Enter to select · Esc to cancel" (the idle input box only shows "? for
+  ---shortcuts") -- else 'idle'. Heuristic on rendered text; adjust the markers
+  ---below if the Claude Code TUI changes (claudecode.nvim exposes no state API).
+  local function term_claude_state(buf)
+    if not (buf and vim.api.nvim_buf_is_valid(buf)) then return 'idle' end
+    local n = vim.api.nvim_buf_line_count(buf)
+    local bottom = table.concat(vim.api.nvim_buf_get_lines(buf, math.max(0, n - 12), n, false), '\n'):lower()
+    if bottom:find('esc to interrupt', 1, true) then return 'running' end
+    if bottom:find('to navigate', 1, true) or bottom:find('to select', 1, true) or bottom:find('(y/n)', 1, true) then return 'asking' end
+    return 'idle'
+  end
+
+  ---Switch to terminal `slot`: hide the current terminal float first (so floats
+  ---don't stack), then toggle the target open. Used by `{count}<C-t>` and clicks.
+  function _G.TermGoto(slot)
+    local cur = vim.api.nvim_get_current_buf()
+    if vim.bo[cur].buftype == 'terminal' then term_hide_buf(cur) end
+    _G.TermToggle(slot)
+  end
+
+  ---Winbar renderer: a filled, bufferline-style bar of every open terminal --
+  ---`[1] Term`, `[2] Claude`, ... -- with the focused tab highlighted. Each tab is
+  ---a clickable region (mouse is enabled) routing to _G.TermBarClick.
+  function _G.TermWinbar()
+    local items = term_open_slots()
+    if #items == 0 then return '' end
+    -- The window this winbar is being drawn for tells us which slot is focused.
+    local sw = vim.g.statusline_winid
+    local curbuf = (sw and sw ~= 0 and vim.api.nvim_win_is_valid(sw)) and vim.api.nvim_win_get_buf(sw) or vim.api.nvim_get_current_buf()
+    local parts = {}
+    for _, it in ipairs(items) do
+      local active = it.buf == curbuf
+      local hl
+      if active then
+        hl = '%#TermBarActive#' -- focused tab is always the blue chip (no state color)
+      elseif it.claude then
+        -- inactive Claude tab: orange while working, red while asking, else grey (idle)
+        local st = term_claude_state(it.buf)
+        hl = (st == 'running' and '%#TermBarClaudeRunning#') or (st == 'asking' and '%#TermBarClaudeAsking#') or '%#TermBarInactive#'
+      else
+        hl = '%#TermBarInactive#'
+      end
+      local label = it.claude and 'Claude' or 'Term'
+      parts[#parts + 1] = hl .. '%' .. it.slot .. '@v:lua.TermBarClick@ [' .. it.slot .. '] ' .. label .. ' %X'
+    end
+    return table.concat(parts) .. '%#TermBarFill#'
+  end
+
+  ---Tab-bar click handler: `minwid` is the slot encoded into each tab above.
+  function _G.TermBarClick(slot) _G.TermGoto(slot) end
+
+  -- Thin vertical terminal bar on the right edge, shown while editing: one cell per
+  -- open terminal, labelled compactly `1T` / `2C` (slot + Term/Claude) and colored
+  -- by Claude state (orange running, red asking, grey idle). Hidden inside terminal
+  -- floats (those show the top winbar) and when no terminals are open. Plain buffer
+  -- + per-line extmark highlights; display-only -- switch with `{count}<C-t>`. Avoids
+  -- touching the statusline / tabline / laststatus, so nothing else changes.
+  local rbar = {}
+  local rbar_ns = vim.api.nvim_create_namespace 'term_rbar'
+  local function rbar_hide()
+    if rbar.win and vim.api.nvim_win_is_valid(rbar.win) then pcall(vim.api.nvim_win_close, rbar.win, true) end
+    rbar.win = nil
+  end
+  local function rbar_refresh()
+    local cur = vim.api.nvim_get_current_buf()
+    if vim.bo[cur].buftype == 'terminal' or vim.fn.getcmdwintype() ~= '' then return rbar_hide() end
+    local items = term_open_slots()
+    if #items == 0 then return rbar_hide() end
+    -- Compact labels (`1T`, `2C`), their per-terminal state highlight, and slot.
+    local labels, lhls, slots, maxlen = {}, {}, {}, 0
+    for i, it in ipairs(items) do
+      labels[i] = it.slot .. (it.claude and 'C' or 'T')
+      slots[i] = it.slot
+      maxlen = math.max(maxlen, #labels[i])
+      local hl = 'TermRbarTerm'
+      if it.claude then
+        local st = term_claude_state(it.buf)
+        hl = (st == 'running' and 'TermBarClaudeRunning') or (st == 'asking' and 'TermBarClaudeAsking') or 'TermRbarTerm'
+      end
+      lhls[i] = hl
+    end
+    -- Lay out as fully-colored 1-row chips with a plain dark gap between them (no
+    -- gap before the first or after the last, so the last chip has no leftover).
+    -- `line_slot` maps each row (1-based) to a slot so clicks switch terminals.
+    local cw = maxlen + 2
+    local blank = string.rep(' ', cw)
+    local lines, line_hl = {}, {}
+    rbar.line_slot = {}
+    for i, lab in ipairs(labels) do
+      if i > 1 then
+        lines[#lines + 1] = blank -- dark gap (Normal:TermRbarFill); no highlight
+        rbar.line_slot[#lines] = slots[i - 1]
+      end
+      local pad = cw - #lab
+      local left = math.floor(pad / 2)
+      lines[#lines + 1] = string.rep(' ', left) .. lab .. string.rep(' ', pad - left)
+      line_hl[#lines] = lhls[i]
+      rbar.line_slot[#lines] = slots[i]
+    end
+    if not (rbar.buf and vim.api.nvim_buf_is_valid(rbar.buf)) then
+      rbar.buf = vim.api.nvim_create_buf(false, true)
+      vim.bo[rbar.buf].bufhidden = 'hide'
+    end
+    vim.api.nvim_buf_set_lines(rbar.buf, 0, -1, false, lines)
+    vim.api.nvim_buf_clear_namespace(rbar.buf, rbar_ns, 0, -1)
+    for ln, hl in pairs(line_hl) do
+      pcall(vim.api.nvim_buf_set_extmark, rbar.buf, rbar_ns, ln - 1, 0, { end_col = #lines[ln], hl_group = hl })
+    end
+    local cfg = { relative = 'editor', anchor = 'NE', row = 1, col = vim.o.columns, width = cw, height = #lines, focusable = true, style = 'minimal', zindex = 35, noautocmd = true }
+    if rbar.win and vim.api.nvim_win_is_valid(rbar.win) then
+      pcall(vim.api.nvim_win_set_config, rbar.win, cfg)
+    else
+      rbar.win = vim.api.nvim_open_win(rbar.buf, false, cfg)
+      vim.wo[rbar.win].winhighlight = 'Normal:TermRbarFill,NormalNC:TermRbarFill'
+    end
+  end
+  _G.TermRbarRefresh = rbar_refresh
+
+  -- Click a cell in the right-edge bar to switch to that terminal. A global
+  -- <LeftMouse> handler checks (via getmousepos) whether the click landed on the
+  -- bar; if so it routes to that slot and consumes the click, otherwise it passes
+  -- the click through unchanged.
+  vim.keymap.set('n', '<LeftMouse>', function()
+    local pos = vim.fn.getmousepos()
+    if rbar.win and vim.api.nvim_win_is_valid(rbar.win) and pos.winid == rbar.win then
+      local slot = rbar.line_slot and rbar.line_slot[pos.line]
+      if slot then
+        vim.schedule(function() _G.TermGoto(slot) end)
+        return ''
+      end
+    end
+    return '<LeftMouse>'
+  end, { expr = true, desc = 'Click terminal bar to switch (else normal click)' })
+  vim.api.nvim_create_autocmd({ 'WinEnter', 'BufWinEnter', 'WinClosed', 'TermClose', 'VimResized', 'TabEnter', 'CmdlineLeave' }, {
+    desc = 'Refresh the vertical terminal bar',
+    callback = function() vim.schedule(rbar_refresh) end,
+  })
+
+  -- Poll the state of every Claude terminal (the dedicated pane and any shell
+  -- terminal running `claude`). When any changes we (1) redraw the focused float's
+  -- winbar / the right-edge bar so the tab color updates promptly even when you're
+  -- watching from elsewhere, and (2) if the focused terminal is the one that
+  -- changed, send ^L to repaint its TUI. React Ink redraws in place and leaves stale
+  -- cells when its height changes (e.g. a question menu appears over the focused
+  -- pane); ^L (the same nudge as <leader>al) forces a clean repaint, and a state
+  -- change is exactly when that stale rendering happens, so this clears it.
+  local term_claude_states = {}
+  vim.fn.timer_start(500, function()
+    local cur = vim.api.nvim_get_current_buf()
+    local in_term = vim.bo[cur].buftype == 'terminal'
+    local changed, seen = false, {}
+    for _, it in ipairs(term_open_slots()) do
+      if it.claude then
+        seen[it.buf] = true
+        local st = term_claude_state(it.buf)
+        if term_claude_states[it.buf] ~= st then
+          term_claude_states[it.buf] = st
+          changed = true
+          if it.buf == cur then
+            local job = vim.b[it.buf].terminal_job_id
+            if job then pcall(vim.fn.chansend, job, '\012') end -- ^L -> repaint, clears stale cells
+          end
+        end
+      end
+    end
+    for b in pairs(term_claude_states) do
+      if not seen[b] then term_claude_states[b] = nil end
+    end
+    if changed then
+      if in_term then pcall(vim.cmd, 'redrawstatus') end
+      rbar_refresh()
+    end
+  end, { ['repeat'] = -1 })
+
+  -- Terminal dispatcher. Slot 2 = claudecode.nvim (floating); every other slot is
+  -- a Snacks terminal. {count}<C-t> switches to terminal #count (TermGoto hides the
+  -- current float first, so they don't stack); bare <C-t> toggles the last-used one.
   local term_last_slot = 1
   function _G.TermToggle(slot)
     slot = slot or (vim.v.count ~= 0 and vim.v.count) or term_last_slot
@@ -493,19 +778,20 @@ do
     if slot == 2 then
       require('claudecode.terminal').simple_toggle(claude_float)
     else
-      vim.cmd(slot .. 'ToggleTerm')
+      Snacks.terminal.toggle(nil, term_opts(slot))
     end
   end
-  vim.keymap.set('n', '<C-t>', function() _G.TermToggle() end, { desc = 'Toggle terminal ({count}; 2 = Claude)' })
-  -- From inside a terminal, <C-t> toggles whichever terminal you are in.
-  vim.keymap.set('t', '<C-t>', function()
-    local buf = vim.api.nvim_get_current_buf()
-    if vim.bo[buf].filetype == 'claudecode' or vim.api.nvim_buf_get_name(buf):match 'claude' then
-      require('claudecode.terminal').simple_toggle(claude_float)
+
+  vim.keymap.set('n', '<C-t>', function()
+    if vim.v.count ~= 0 then
+      _G.TermGoto(vim.v.count) -- {count}<C-t> -> switch to that terminal
     else
-      vim.cmd((vim.b[buf].toggle_number or '') .. 'ToggleTerm')
+      _G.TermToggle() -- bare <C-t> -> toggle the last-used terminal
     end
-  end, { desc = 'Toggle current terminal' })
+  end, { desc = 'Terminal: {count} switches to slot N (2 = Claude); bare toggles last' })
+  -- From inside a terminal, <C-t> hides whichever terminal you are in (counts don't
+  -- work in terminal mode; drop to normal mode for {count}<C-t> to switch).
+  vim.keymap.set('t', '<C-t>', function() term_hide_buf(vim.api.nvim_get_current_buf()) end, { desc = 'Hide current terminal' })
 
   -- GitHub Copilot (vimscript plugin; no setup() call needed).
   vim.pack.add { gh 'github/copilot.vim' }
@@ -521,7 +807,10 @@ do
   -- snacks.nvim is claudecode's recommended terminal-UI dependency (nicer pane styling).
   vim.pack.add { gh 'folke/snacks.nvim', gh 'coder/claudecode.nvim' }
   require('snacks').setup {}
-  require('claudecode').setup {}
+  -- `terminal_cmd` is the base command the plugin launches; flags such as
+  -- `--resume` / `--continue` (see the <leader>a* maps below) are appended after it.
+  -- We default to --dangerously-skip-permissions so Claude never stops to ask.
+  require('claudecode').setup { terminal_cmd = 'claude --dangerously-skip-permissions' }
 
   -- Inside Claude's terminal, <C-q> leaves terminal mode without colliding with
   -- Claude's own <Esc>/<Esc><Esc> bindings (interrupt and rewind).

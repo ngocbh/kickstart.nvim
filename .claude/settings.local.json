@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/ngocbh/.local/share/nvim/**)",
+      "Read(//home/ngocbh/.local/share/nvim/site/pack/**)",
+      "Read(//home/ngocbh/.local/share/nvim/site/parser/**)",
+      "Read(//home/ngocbh/.local/**)",
+      "Bash(nvim --headless -u init.lua -c \"lua dofile\\('/tmp/sh_check2.lua'\\)\" -c \"qa\")",
+      "Bash(nvim --headless -u init.lua -c \"lua dofile\\('/tmp/rtp.lua'\\)\" -c \"qa\")",
+      "Bash(nvim --headless -u init.lua -c \"lua dofile\\('/tmp/verify.lua'\\)\" -c \"qa\")",
+      "Bash(grep -n \"SECTION\\\\|^do$\\\\|^end$\\\\|-- \\\\[\\\\[\" ~/.config/nvim/init.lua)",
+      "Bash(nvim --headless -u init.lua -c \"lua dofile\\('/tmp/term_test.lua'\\)\" -c \"qa!\")",
+      "Bash(nvim --headless -u init.lua -c 'qa')",
+      "Bash(grep -vi \"ClaudeCode\\\\|^$\")",
+      "Bash(nvim --headless -u init.lua -c \"lua vim.pack.del\\({'toggleterm.nvim'}\\)\" -c 'qa')",
+      "Bash(nvim --headless -u init.lua -c \"lua dofile\\('/tmp/term_snacks_test.lua'\\)\" -c 'qa!')",
+      "Bash(stylua --check init.lua)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(echo \"--- grep exit \\(1=clean\\): $? ---\")",
+      "Bash(nvim --headless -u init.lua -c 'lua Snacks.terminal.toggle\\(nil, { count = 1, win = { position = \"float\" } }\\)' -c 'lua Snacks.terminal.toggle\\(nil, { count = 3, win = { position = \"float\" } }\\)' -c 'lua vim.defer_fn\\(function\\(\\) print\\(\"WINBAR=[\"..tostring\\(_G.TermWinbar\\(\\)\\)..\"]\"\\); vim.cmd\\(\"qa!\"\\) end, 400\\)')"
+    ]
+  }
+}

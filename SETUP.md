@@ -36,15 +36,14 @@ block). See the file for current line numbers.
 
 | Plugin | Purpose | Setup notes |
 |---|---|---|
-| `nvim-tree/nvim-tree.lua` | File-tree sidebar | `view.side = 'left'`, `width = 30`, `git icons off`, `git_ignored = false` (show ignored), `highlight_git = 'name'` (grey them), `update_focused_file.enable = true` (sidebar auto-tracks the focused buffer), `on_attach` override to remap `<C-t>` → `ToggleTerm`, disable netrw before loading |
+| `nvim-tree/nvim-tree.lua` | File-tree sidebar | `view.side = 'left'`, `width = 30`, `git icons off`, `git_ignored = false` (show ignored), `highlight_git = 'name'` (grey them), `update_focused_file.enable = true` (sidebar auto-tracks the focused buffer), `on_attach` override to remap `<C-t>` → terminal toggle, disable netrw before loading |
 | `akinsho/bufferline.nvim` | Top buffer bar | `diagnostics = 'nvim_lsp'`, offset for NvimTree, `custom_filter` hides unnamed `[No Name]` buffers |
 | `sindrets/diffview.nvim` | Git diff viewer | Default setup |
-| `akinsho/toggleterm.nvim` | Togglable terminal | `direction = 'float'` (95% size, rounded border), `start_in_insert = true`. No `open_mapping` — `<C-t>` is a custom dispatcher (see below) |
 | `github/copilot.vim` | Copilot AI suggestions | No setup() needed (vimscript plugin). One-time `:Copilot setup` after install |
 | `lukas-reineke/indent-blankline.nvim` | Indent guides | `require('ibl').setup{}` |
 | `Vimjas/vim-python-pep8-indent` | Better Python indent | No setup; takes effect via ftplugin |
-| `folke/snacks.nvim` | Required by claudecode for terminal UI | `require('snacks').setup{}` |
-| `coder/claudecode.nvim` | Claude Code integration | Default setup; keymaps registered manually |
+| `folke/snacks.nvim` | Terminal UI (the `<C-t>` dispatcher) + required by claudecode | `require('snacks').setup{}`. Replaced `toggleterm.nvim` — the `<C-t>` dispatcher now uses `Snacks.terminal`, keyed by `count` (see below) |
+| `coder/claudecode.nvim` | Claude Code integration | `terminal_cmd = 'claude --dangerously-skip-permissions'` (so the embedded Claude never stops to ask); keymaps registered manually |
 
 ## 3. LSP / formatter changes
 
@@ -157,19 +156,90 @@ vim.keymap.set('n', '<leader>gH', '<cmd>DiffviewFileHistory<cr>')
 
 ## 6b. Terminal dispatcher (`<C-t>`)
 
-`<C-t>` is not bound to ToggleTerm directly. Instead a `_G.TermToggle(slot)`
-dispatcher (init.lua) routes by `vim.v.count`:
+`<C-t>` is bound to a `_G.TermToggle(slot)` dispatcher (init.lua) that routes by
+`vim.v.count`. Terminals are backed by `Snacks.terminal` (no dedicated terminal
+plugin — Snacks is already a claudecode dependency):
 
-- `{count}<C-t>` toggles that numbered terminal; bare `<C-t>` reopens the
-  last-used slot.
+- `{count}<C-t>` switches to terminal #count via `_G.TermGoto(slot)`, which hides
+  the current terminal float first (so floats don't stack) then toggles the target
+  open. Bare `<C-t>` toggles the last-used slot. Snacks keys terminals by `count`,
+  so each slot is its own persistent terminal. Floats are 95% size (same as the
+  Claude float), rounded border; identity is shown by the tab bar (see below).
 - **Slot 2 is reserved for claudecode.nvim** — `2<C-t>` calls
   `require('claudecode.terminal').simple_toggle{ snacks_win_opts = { position =
-  'float', width = 0.95, height = 0.95, border = 'rounded' } }`, giving Claude a
-  floating window instead of the sidebar.
-- Every other slot is a normal ToggleTerm terminal (`{slot}ToggleTerm`).
-- A terminal-mode `<C-t>` toggles whichever terminal you're currently inside
-  (Claude buffer → claude float; otherwise the ToggleTerm with that
-  `toggle_number`).
+  'float', width = 0.95, height = 0.95, border = 'rounded', wo = { winbar = … } } }`,
+  giving Claude a floating window instead of the sidebar.
+- Every other slot is a `Snacks.terminal.toggle(nil, { count = slot, win = {...} })`.
+- A terminal-mode `<C-t>` hides whichever terminal you're currently inside (counts
+  don't work in terminal mode — drop to normal mode for `{count}<C-t>` to switch).
+
+### Terminal tab bar (bufferline-style winbar)
+
+Every terminal float carries a `winbar` set to `%!v:lua.TermWinbar()` (passed via
+each float's `win.wo`, and `snacks_win_opts.wo` for the Claude float). `%!` makes
+Neovim re-evaluate it on every redraw, so the bar stays current as terminals
+open/close. It sits on its own row at the top of the float, just under the border,
+and looks like the editor's bufferline: a filled bar of tabs `[1] Term`, `[2] Claude`, ….
+
+- `_G.TermWinbar()` builds the bar from `term_open_slots()` (which walks
+  `Snacks.terminal.list()`, maps each buffer to its slot via `term_slot_of` —
+  `vim.b[buf].snacks_terminal.id`, with the claudecode pane pinned to slot 2),
+  highlighting the focused tab (resolved from `vim.g.statusline_winid`).
+- **Claude detection is decoupled from the slot.** `term_is_claude_pane()` matches
+  only the dedicated claudecode.nvim pane (slot 2). `term_running_claude()` is the
+  broader check used for the label/colors: it is true for the pane *and* for any
+  ordinary Snacks terminal currently running the `claude` CLI — detected by the
+  terminal title (`b:term_title` contains "claude") or, failing that, the Claude TUI
+  footer markers. So launching `claude` in slot 1/3/… relabels that tab `[N] Claude`
+  (keeping its real slot number) and gives it the state colors below.
+- Tabs are **clickable**: each is wrapped in a `%<slot>@v:lua.TermBarClick@…%X` click
+  region. `_G.TermBarClick(slot)` → `_G.TermGoto(slot)`, which hides the current
+  terminal float (so floats don't stack) then toggles the target open. `{count}<C-t>`
+  switches the same way.
+- Highlights are explicit tokyonight-night colors (not links) so the bar has its own
+  background, distinct from the terminal output: `TermBarActive` is a blue chip
+  (`#7aa2f7` bg), `TermBarInactive` / `TermBarFill` are a dim `#292e42` strip.
+- **The inactive Claude tab is colored by Claude's state** (the focused tab is always
+  the normal blue active chip — no state color): when *not* focused, `TermBarClaudeRunning`
+  (dark orange `#ff9e64`) while it's working, `TermBarClaudeAsking` (red `#f7768e`) while
+  it is asking you a question, and the normal grey inactive chip when idle/finished.
+  State is inferred by `term_claude_state()`, which scans the bottom ~12 lines of the
+  Claude terminal buffer for footer text: `esc to interrupt` means *running*; a
+  selection-menu footer (`to navigate` / `to select`, e.g. "↑/↓ to navigate · Enter
+  to select · Esc to cancel", or a `(y/n)` prompt) means *asking*; otherwise *idle*
+  (the idle input box only shows "? for shortcuts"). claudecode.nvim exposes no state
+  API, so this is a heuristic on the rendered output — adjust the markers in
+  `term_claude_state()` if the Claude Code TUI text changes. A repeating
+  `vim.fn.timer_start` (500 ms, active only while a terminal float is focused) polls
+  the state of *every* Claude terminal and, **on a change**, (a) calls `redrawstatus`
+  so the tab color updates promptly even when you're in another terminal, and (b) if
+  the focused terminal is the one that changed, sends `^L` to its job to force a clean
+  TUI repaint — React Ink redraws in place and leaves stale cells when its height
+  changes (e.g. a question menu appears over the focused pane), and a state change is
+  exactly when that happens, so this auto-clears it (same nudge as `<leader>al`).
+- **Vertical right bar while editing.** `rbar_refresh()` (alias `_G.TermRbarRefresh`)
+  draws a small floating box on the right edge (`relative=editor`, `anchor=NE`,
+  `row=1`, `col=columns`): a padded, centered cell per terminal labelled `1T` / `2C`
+  (slot + Term/Claude) as a fully-colored 1-row chip, with a plain dark gap between
+  chips (none before the first or after the last, so the last chip has no leftover);
+  width = longest label + 2, height = 2·terminals − 1. The bar uses its own palette: a
+  dark panel/gap `TermRbarFill` (`#16161e`) with the grey idle chip `TermRbarTerm`
+  (`#292e42`, lighter than the panel so chips stay distinct via the gap alone);
+  running/asking chips reuse the vivid `TermBarClaudeRunning`/`TermBarClaudeAsking`.
+  Colors applied via per-line extmarks; the float background is `Normal:TermRbarFill`.
+  Each cell is **clickable**: a global
+  `<LeftMouse>` handler checks `getmousepos()` against the bar window, maps the clicked
+  row to its slot via `rbar.line_slot`, and calls `_G.TermGoto` (passing the click
+  through unchanged when it lands elsewhere). You can also switch with `{count}<C-t>`.
+  It hides when the focused buffer is a terminal (the float's winbar shows the full
+  bar) or when no terminals are open. Refreshed on `WinEnter`/`BufWinEnter`/
+  `WinClosed`/`TermClose`/`VimResized`/`TabEnter`/`CmdlineLeave` and by the state-poll
+  timer (so Claude's color updates live while you edit). Caveat: being a float, it
+  overlays the rightmost columns of editor content rather than reserving space.
+- Helpers `term_is_claude_pane`, `term_running_claude`, `term_slot_of`,
+  `term_open_slots`, `term_hide_buf`, `term_claude_state`, `rbar_refresh`, and
+  `_G.TermGoto` (init.lua) back the bar, the `{count}<C-t>` switch, and the
+  terminal-mode `<C-t>` (which calls `term_hide_buf`).
 
 `<leader>ac` still opens Claude in the right **sidebar**; the float route is
 `2<C-t>`.
