@@ -172,6 +172,9 @@ plugin — Snacks is already a claudecode dependency):
 - Every other slot is a `Snacks.terminal.toggle(nil, { count = slot, win = {...} })`.
 - A terminal-mode `<C-t>` hides whichever terminal you're currently inside (counts
   don't work in terminal mode — drop to normal mode for `{count}<C-t>` to switch).
+- Terminal mode is exited with either `<Esc><Esc>` (kickstart default) or `<C-q>`.
+  `<C-q>` is mapped globally (section 1) so the same key works in the Claude TUI,
+  where `<Esc>`/`<Esc><Esc>` are taken by Claude's own interrupt/rewind bindings.
 
 ### Terminal tab bar (bufferline-style winbar)
 
@@ -249,7 +252,6 @@ and looks like the editor's bufferline: a filled bar of tabs `[1] Term`, `[2] Cl
 Inside `TermOpen`, when the buffer is Claude's terminal (filetype `claudecode`
 or buffer name contains `claude`):
 
-- `<C-q>` (terminal mode) → exit to normal mode
 - `<M-q>` (terminal mode) → close the Claude pane
 - `q` (normal mode) → close the Claude pane
 - `<leader>al` (normal mode) → force redraw both nvim and Claude TUI (`^L` to PTY)

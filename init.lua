@@ -212,6 +212,9 @@ do
   -- NOTE: This won't work in all terminal emulators/tmux/etc. Try your own mapping
   -- or just use <C-\><C-n> to exit terminal mode
   vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
+  -- <C-q> also exits terminal mode, matching Claude's terminal where <Esc> is taken
+  -- by Claude itself. Keeps a single, consistent exit key across every terminal.
+  vim.keymap.set('t', '<C-q>', '<C-\\><C-n>', { desc = 'Exit terminal mode' })
 
   -- TIP: Disable arrow keys in normal mode
   -- vim.keymap.set('n', '<left>', '<cmd>echo "Use h to move!!"<CR>')
@@ -812,8 +815,9 @@ do
   -- We default to --dangerously-skip-permissions so Claude never stops to ask.
   require('claudecode').setup { terminal_cmd = 'claude --dangerously-skip-permissions' }
 
-  -- Inside Claude's terminal, <C-q> leaves terminal mode without colliding with
-  -- Claude's own <Esc>/<Esc><Esc> bindings (interrupt and rewind).
+  -- <C-q> leaves terminal mode here without colliding with Claude's own
+  -- <Esc>/<Esc><Esc> bindings (interrupt and rewind) — it is mapped globally for
+  -- all terminals in section 1, so no buffer-local override is needed.
   -- Darker background for the Claude pane so it visually separates from the editor.
   vim.api.nvim_set_hl(0, 'ClaudeBg', { bg = '#0d0e16' })
   local function is_claude_buf(buf)
@@ -827,7 +831,6 @@ do
     pattern = '*',
     callback = function(args)
       if not is_claude_buf(args.buf) then return end
-      vim.keymap.set('t', '<C-q>', [[<C-\><C-n>]], { buffer = args.buf, desc = 'Exit Claude terminal mode' })
       -- Close the Claude pane outright from terminal mode (single keystroke).
       vim.keymap.set('t', '<M-q>', [[<C-\><C-n><cmd>ClaudeCodeClose<cr>]], { buffer = args.buf, desc = 'Close Claude pane' })
       -- In normal mode of the Claude buffer, plain `q` closes the pane (no recording macros here).

@@ -109,6 +109,7 @@ no terminals are open.
 | `2<C-t>` | Switch to Claude as a **floating** window (slot 2 is reserved for claudecode.nvim) |
 | `<C-t>` inside a terminal | Hide the terminal you're currently in (then `{count}<C-t>` from normal mode to switch) |
 | `<Esc><Esc>` | Exit terminal mode (kickstart default) |
+| `<C-q>` | Exit terminal mode (consistent with the Claude TUI, where `<Esc>` is taken) |
 
 ### Claude Code (AI / Claude prefix)
 | Key | Action |
@@ -124,7 +125,7 @@ no terminals are open.
 | `<space>aa` / `<space>ad` | Accept / deny pending diff |
 | `<space>al` | Force redraw the Claude pane |
 | Inside the Claude TUI: | |
-| `<C-q>` | Exit terminal mode (then `:q` hides the pane) |
+| `<C-q>` | Exit terminal mode (global mapping; here `<Esc>` is taken by Claude) |
 | `<M-q>` | Close the pane outright |
 | `q` (in normal mode) | Close the pane |
 
