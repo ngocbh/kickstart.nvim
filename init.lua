@@ -743,15 +743,45 @@ do
   -- cells when its height changes (e.g. a question menu appears over the focused
   -- pane); ^L (the same nudge as <leader>al) forces a clean repaint, and a state
   -- change is exactly when that stale rendering happens, so this clears it.
+  -- When running inside tmux, also mirror Claude's state onto nvim's *tmux window
+  -- tab* so you notice from another tab: color the tab orange while Claude works /
+  -- red while it asks. We set `window-status-style` on the pane's window, which tmux
+  -- renders ONLY for inactive windows (the active one uses window-status-current-
+  -- style) -- so the color shows exactly when "this tmux tab is not active", with no
+  -- need to poll the active state. Cleared (option unset) when idle, and on exit.
+  -- Caveat: only takes effect if your window-status-format doesn't hardcode its own
+  -- colors (the default does respect window-status-style).
+  local tmux_pane = vim.env.TMUX and vim.env.TMUX_PANE
+  local tmux_last
+  local function tmux_notify(state)
+    if not tmux_pane or state == tmux_last then return end
+    tmux_last = state
+    if state == 'idle' then
+      vim.system { 'tmux', 'set-option', '-uw', '-t', tmux_pane, 'window-status-style' }
+    else
+      local style = state == 'asking' and 'fg=#1a1b26,bg=#f7768e,bold' or 'fg=#1a1b26,bg=#ff9e64,bold'
+      vim.system { 'tmux', 'set-option', '-w', '-t', tmux_pane, 'window-status-style', style }
+    end
+  end
+  if tmux_pane then
+    vim.api.nvim_create_autocmd('VimLeavePre', { desc = 'Clear Claude tmux tab color on exit', callback = function() tmux_notify 'idle' end })
+  end
+
   local term_claude_states = {}
   vim.fn.timer_start(500, function()
     local cur = vim.api.nvim_get_current_buf()
     local in_term = vim.bo[cur].buftype == 'terminal'
-    local changed, seen = false, {}
+    local changed, seen, agg = false, {}, 'idle'
     for _, it in ipairs(term_open_slots()) do
       if it.claude then
         seen[it.buf] = true
         local st = term_claude_state(it.buf)
+        -- Aggregate across all Claude terminals for the tmux tab (asking > running > idle).
+        if st == 'asking' then
+          agg = 'asking'
+        elseif st == 'running' and agg ~= 'asking' then
+          agg = 'running'
+        end
         if term_claude_states[it.buf] ~= st then
           term_claude_states[it.buf] = st
           changed = true
@@ -769,6 +799,7 @@ do
       if in_term then pcall(vim.cmd, 'redrawstatus') end
       rbar_refresh()
     end
+    tmux_notify(agg) -- dedups internally; clears to idle when no Claude is active/open
   end, { ['repeat'] = -1 })
 
   -- Terminal dispatcher. Slot 2 = claudecode.nvim (floating); every other slot is

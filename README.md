@@ -102,6 +102,11 @@ panel (with a gap between) — colored by Claude's state (orange working, red as
 watch terminals without opening one. **Click a cell** to switch to that terminal (or use `{count}<C-t>`). It hides itself inside terminal floats (which show the full tab bar as their winbar) and when
 no terminals are open.
 
+If you run nvim **inside tmux**, Claude's state is also reflected onto nvim's **tmux window tab**: it turns
+orange while Claude is working and red while it's asking — but only while that tmux tab is *not* the active
+one (so you notice from another tab). It clears when Claude goes idle and when you quit nvim. No
+`~/.tmux.conf` change is needed (it sets the window's `window-status-style`, which the tmux default honors).
+
 | Key | Action |
 |---|---|
 | `<C-t>` | Toggle the last-used terminal (defaults to slot 1) |

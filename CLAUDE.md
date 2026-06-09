@@ -86,7 +86,13 @@ modules and are mostly disabled.
   TUI text changes), kept fresh by a 500 ms
   state-poll timer that `redrawstatus` on change and, when the focused terminal is the one that changed, sends
   `^L` to repaint its TUI (React Ink leaves stale cells when a menu changes its height — auto-fix for the
-  non-refreshed screen, same as `<leader>al`). Helpers `term_is_claude_pane` / `term_running_claude` /
+  non-refreshed screen, same as `<leader>al`). The same poll also **mirrors Claude's state onto nvim's tmux
+  window tab** when running inside tmux (`$TMUX`/`$TMUX_PANE`): it sets `window-status-style` on the pane's
+  window via `tmux set-option -w` (orange running / red asking, aggregated across all Claude terminals as
+  asking > running > idle; unset on idle and on `VimLeavePre`). tmux renders `window-status-style` only for
+  *inactive* windows, so the color shows exactly when "this tmux tab is not active" — no need to poll the
+  active window. Only takes effect if your `window-status-format` doesn't hardcode its own colors (the
+  tmux default respects the style). Helpers `term_is_claude_pane` / `term_running_claude` /
   `term_slot_of` / `term_open_slots` / `term_hide_buf` /
   `term_claude_state` back the bar and the terminal-mode `<C-t>` map. While editing (no terminal float
   focused), `rbar_refresh` (`_G.TermRbarRefresh`) shows a small vertical box on the right edge with a padded

@@ -220,6 +220,15 @@ and looks like the editor's bufferline: a filled bar of tabs `[1] Term`, `[2] Cl
   TUI repaint — React Ink redraws in place and leaves stale cells when its height
   changes (e.g. a question menu appears over the focused pane), and a state change is
   exactly when that happens, so this auto-clears it (same nudge as `<leader>al`).
+- **Tmux tab notification.** When nvim runs inside tmux (`$TMUX` / `$TMUX_PANE` set), the same state-poll
+  also mirrors Claude's state onto nvim's **tmux window tab** so you notice from another tab. It runs
+  `tmux set-option -w -t <pane> window-status-style 'fg=#1a1b26,bg=#ff9e64,bold'` (orange) while Claude is
+  working and `bg=#f7768e` (red) while it's asking, aggregating across all Claude terminals (asking >
+  running > idle), and unsets the option when idle and on `VimLeavePre`. tmux renders `window-status-style`
+  **only for inactive windows** (the active window uses `window-status-current-style`), so the color appears
+  exactly when "this tmux tab is not active" — no polling of the active window is needed (`tmux_notify` in
+  init.lua). Caveat: this only shows if your `window-status-format` doesn't hardcode its own colors; the
+  tmux default respects `window-status-style`, so no `~/.tmux.conf` change is required.
 - **Vertical right bar while editing.** `rbar_refresh()` (alias `_G.TermRbarRefresh`)
   draws a small floating box on the right edge (`relative=editor`, `anchor=NE`,
   `row=1`, `col=columns`): a padded, centered cell per terminal labelled `1T` / `2C`
