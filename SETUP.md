@@ -48,27 +48,20 @@ block). See the file for current line numbers.
 ## 3. LSP / formatter changes
 
 - `vim.g.have_nerd_font` flipped to `true`.
-- `basedpyright` added to the `servers` table (instead of `pyright` — pyright
-  needs `npm` which isn't on the HPC, basedpyright installs via Mason with pip).
-- Custom basedpyright settings to silence the noisiest strict checks:
+- `pyright` is the Python LSP in the `servers` table. ⚠️ pyright installs via
+  Mason using `npm`/Node — make sure Node is on the host. This fork originally
+  used `basedpyright` (pip-installable via Mason) because the target HPC has no
+  `npm`; if pyright won't install there, switch back to basedpyright.
+- pyright settings trim the noisiest checks:
 
   ```lua
-  basedpyright = {
+  pyright = {
     settings = {
-      basedpyright = {
+      python = {
         analysis = {
           typeCheckingMode = 'standard',
           diagnosticSeverityOverrides = {
-            reportAny = 'none',
-            reportExplicitAny = 'none',
-            reportImplicitOverride = 'none',
-            reportUnusedCallResult = 'none',
             reportMissingTypeStubs = 'none',
-            reportUnknownArgumentType = 'none',
-            reportUnknownMemberType = 'none',
-            reportUnknownVariableType = 'none',
-            reportUnknownParameterType = 'none',
-            reportMissingParameterType = 'none',
           },
         },
       },
@@ -190,11 +183,10 @@ and looks like the editor's bufferline: a filled bar of tabs `[1] Term`, `[2] Cl
   highlighting the focused tab (resolved from `vim.g.statusline_winid`).
 - **Claude detection is decoupled from the slot.** `term_is_claude_pane()` matches
   only the dedicated claudecode.nvim pane (slot 2). `term_running_claude()` is the
-  broader check used for the label/colors: it is true for the pane *and* for any
-  ordinary Snacks terminal currently running the `claude` CLI — detected by the
-  terminal title (`b:term_title` contains "claude") or, failing that, the Claude TUI
-  footer markers. So launching `claude` in slot 1/3/… relabels that tab `[N] Claude`
-  (keeping its real slot number) and gives it the state colors below.
+  broader check used for the label: it is true for the pane *and* for any ordinary
+  Snacks terminal currently running the `claude` CLI — detected by the terminal title
+  (`b:term_title` contains "claude") or filetype. So launching `claude` in slot 1/3/…
+  relabels that tab `[N] Claude` (keeping its real slot number).
 - Tabs are **clickable**: each is wrapped in a `%<slot>@v:lua.TermBarClick@…%X` click
   region. `_G.TermBarClick(slot)` → `_G.TermGoto(slot)`, which hides the current
   terminal float (so floats don't stack) then toggles the target open. `{count}<C-t>`
@@ -202,56 +194,40 @@ and looks like the editor's bufferline: a filled bar of tabs `[1] Term`, `[2] Cl
 - Highlights are explicit tokyonight-night colors (not links) so the bar has its own
   background, distinct from the terminal output: `TermBarActive` is a blue chip
   (`#7aa2f7` bg), `TermBarInactive` / `TermBarFill` are a dim `#292e42` strip.
-- **The inactive Claude tab is colored by Claude's state** (the focused tab is always
-  the normal blue active chip — no state color): when *not* focused, `TermBarClaudeRunning`
-  (dark orange `#ff9e64`) while it's working, `TermBarClaudeAsking` (red `#f7768e`) while
-  it is asking you a question, and the normal grey inactive chip when idle/finished.
-  State is inferred by `term_claude_state()`, which scans the bottom ~12 lines of the
-  Claude terminal buffer for footer text: `esc to interrupt` means *running*; a
-  selection-menu footer (`to navigate` / `to select`, e.g. "↑/↓ to navigate · Enter
-  to select · Esc to cancel", or a `(y/n)` prompt) means *asking*; otherwise *idle*
-  (the idle input box only shows "? for shortcuts"). claudecode.nvim exposes no state
-  API, so this is a heuristic on the rendered output — adjust the markers in
-  `term_claude_state()` if the Claude Code TUI text changes. A repeating
-  `vim.fn.timer_start` (500 ms, active only while a terminal float is focused) polls
-  the state of *every* Claude terminal and, **on a change**, (a) calls `redrawstatus`
-  so the tab color updates promptly even when you're in another terminal, and (b) if
-  the focused terminal is the one that changed, sends `^L` to its job to force a clean
-  TUI repaint — React Ink redraws in place and leaves stale cells when its height
-  changes (e.g. a question menu appears over the focused pane), and a state change is
-  exactly when that happens, so this auto-clears it (same nudge as `<leader>al`).
-- **Tmux tab notification.** When nvim runs inside tmux (`$TMUX` / `$TMUX_PANE` set), the same state-poll
-  also mirrors Claude's state onto nvim's **tmux window tab** so you notice from another tab. It runs
-  `tmux set-option -w -t <pane> window-status-style 'fg=#1a1b26,bg=#ff9e64,bold'` (orange) while Claude is
-  working and `bg=#f7768e` (red) while it's asking, aggregating across all Claude terminals (asking >
-  running > idle), and unsets the option when idle and on `VimLeavePre`. tmux renders `window-status-style`
-  **only for inactive windows** (the active window uses `window-status-current-style`), so the color appears
-  exactly when "this tmux tab is not active" — no polling of the active window is needed (`tmux_notify` in
-  init.lua). Caveat: this only shows if your `window-status-format` doesn't hardcode its own colors; the
-  tmux default respects `window-status-style`, so no `~/.tmux.conf` change is required.
+- The Claude tab is **no longer colored by run-state** — the focused tab is the blue
+  `TermBarActive` chip, every other tab (Claude or not) is the grey `TermBarInactive`
+  chip. The orange/red state coloring, the `term_claude_state()` poll, and the tmux
+  window-tab mirroring were removed (see the note at the end of this section).
 - **Vertical right bar while editing.** `rbar_refresh()` (alias `_G.TermRbarRefresh`)
   draws a small floating box on the right edge (`relative=editor`, `anchor=NE`,
   `row=1`, `col=columns`): a padded, centered cell per terminal labelled `1T` / `2C`
-  (slot + Term/Claude) as a fully-colored 1-row chip, with a plain dark gap between
-  chips (none before the first or after the last, so the last chip has no leftover);
-  width = longest label + 2, height = 2·terminals − 1. The bar uses its own palette: a
-  dark panel/gap `TermRbarFill` (`#16161e`) with the grey idle chip `TermRbarTerm`
-  (`#292e42`, lighter than the panel so chips stay distinct via the gap alone);
-  running/asking chips reuse the vivid `TermBarClaudeRunning`/`TermBarClaudeAsking`.
-  Colors applied via per-line extmarks; the float background is `Normal:TermRbarFill`.
-  Each cell is **clickable**: a global
-  `<LeftMouse>` handler checks `getmousepos()` against the bar window, maps the clicked
-  row to its slot via `rbar.line_slot`, and calls `_G.TermGoto` (passing the click
-  through unchanged when it lands elsewhere). You can also switch with `{count}<C-t>`.
-  It hides when the focused buffer is a terminal (the float's winbar shows the full
-  bar) or when no terminals are open. Refreshed on `WinEnter`/`BufWinEnter`/
-  `WinClosed`/`TermClose`/`VimResized`/`TabEnter`/`CmdlineLeave` and by the state-poll
-  timer (so Claude's color updates live while you edit). Caveat: being a float, it
-  overlays the rightmost columns of editor content rather than reserving space.
+  (slot + Term/Claude) as a 1-row chip, with a plain dark gap between chips (none
+  before the first or after the last); width = longest label + 2, height = 2·terminals
+  − 1. Palette: a dark panel/gap `TermRbarFill` (`#16161e`) with neutral chips
+  `TermRbarTerm` (`#292e42`). Colors applied via per-line extmarks; the float background
+  is `Normal:TermRbarFill`. Each cell is **clickable**: a global `<LeftMouse>` handler
+  checks `getmousepos()` against the bar window, maps the clicked row to its slot via
+  `rbar.line_slot`, and calls `_G.TermGoto` (passing the click through unchanged when it
+  lands elsewhere). You can also switch with `{count}<C-t>`. It hides when the focused
+  buffer is a terminal (the float's winbar shows the full bar) or when no terminals are
+  open. Refreshed on `WinEnter`/`BufWinEnter`/`WinClosed`/`TermClose`/`VimResized`/
+  `TabEnter`/`CmdlineLeave`. Caveat: being a float, it overlays the rightmost columns of
+  editor content rather than reserving space.
 - Helpers `term_is_claude_pane`, `term_running_claude`, `term_slot_of`,
-  `term_open_slots`, `term_hide_buf`, `term_claude_state`, `rbar_refresh`, and
-  `_G.TermGoto` (init.lua) back the bar, the `{count}<C-t>` switch, and the
-  terminal-mode `<C-t>` (which calls `term_hide_buf`).
+  `term_open_slots`, `term_hide_buf`, `rbar_refresh`, and `_G.TermGoto` (init.lua) back
+  the bar, the `{count}<C-t>` switch, and the terminal-mode `<C-t>` (which calls
+  `term_hide_buf`).
+
+> **Claude run-state coloring moved out to tmux.** The 500 ms poll (`term_claude_state`
+> scraping the Claude TUI footer), the orange/red `TermBarClaude*` tab + rbar colors,
+> the on-state-change `^L` auto-repaint, and the mirroring of state onto nvim's tmux
+> window tab via `window-status-style` (`tmux_notify`) were all **removed** from
+> init.lua. Claude's run-state is now surfaced by the standalone
+> [`claude-tmux`](https://github.com/ngocbh/claude-tmux) package (repo
+> `~/workspace/claude-tmux`; installs scripts to `~/.local/bin`, a tmux snippet, and
+> `~/.claude/settings.json` hooks) — a tmux window-tab tint + a status-right chip driven
+> by Claude Code hooks, for **any** Claude running in tmux. Don't re-add the nvim
+> poll/mirroring: both set `window-status-style` and would fight.
 
 `<leader>ac` still opens Claude in the right **sidebar**; the float route is
 `2<C-t>`.
@@ -311,8 +287,9 @@ can decide what to do in that case.
 1. Install Neovim 0.12+, tree-sitter CLI, claude CLI (per prerequisites).
 2. `git clone git@github.com:ngocbh/kickstart.nvim.git ~/.config/nvim`.
 3. `nvim` — vim.pack auto-installs everything from `nvim-pack-lock.json`.
-4. `:Mason` and confirm `lua-language-server`, `basedpyright`, `stylua` are
-   installed. If not: `:MasonInstall basedpyright stylua lua-language-server`.
+4. `:Mason` and confirm `lua-language-server`, `pyright`, `stylua` are
+   installed. If not: `:MasonInstall pyright stylua lua-language-server`
+   (pyright needs Node/`npm` on the host).
 5. (Optional) `:Copilot setup` to auth Copilot.
 
 You're back.

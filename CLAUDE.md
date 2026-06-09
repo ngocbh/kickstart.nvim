@@ -35,7 +35,7 @@ numbered sections, each wrapped in a `do ... end` block to scope locals:
 3. UI / CORE UX PLUGINS — nvim-tree, bufferline, diffview, which-key, colorscheme,
    the `<C-t>` terminal dispatcher, the Claude-pane styling autocmds
 4. SEARCH & NAVIGATION — Telescope
-5. LSP — Mason + lspconfig; servers: `lua_ls`, `basedpyright`, `stylua`
+5. LSP — Mason + lspconfig; servers: `lua_ls`, `pyright`, `stylua`
 6. FORMATTING — conform.nvim
 7. AUTOCOMPLETE & SNIPPETS — blink/LuaSnip
 8. TREESITTER — parser install + the `FileType` autocmd that attaches highlighting
@@ -63,42 +63,38 @@ modules and are mostly disabled.
 
 ## Conventions specific to this fork
 
-- **basedpyright, not pyright**, for Python (pyright needs `npm`, unavailable on the target HPC;
-  basedpyright installs via Mason with pip). Several strict diagnostics are silenced via
-  `diagnosticSeverityOverrides` in the LSP section — preserve those when touching Python LSP config.
+- **pyright** is the Python LSP (`servers` table in the LSP section). NOTE: pyright installs via
+  Mason using `npm`/Node, which must be present on the host — this fork previously used `basedpyright`
+  (pip-installable) precisely because `npm` isn't on the target HPC, so on that host pyright may fail
+  to install (fall back to basedpyright if so). Strict noise is trimmed via
+  `python.analysis.diagnosticSeverityOverrides` (currently `reportMissingTypeStubs = 'none'`,
+  `typeCheckingMode = 'standard'`) — preserve/extend those when touching Python LSP config.
 - **`<C-t>` is a count-aware terminal dispatcher**, not a plain toggle: `N<C-t>` toggles
   `Snacks.terminal` slot N (each `count` is its own persistent terminal, shown as tab `[N] Term` in the
   bar), and slot 2 is reserved for Claude Code as a floating window. There is no dedicated terminal
   plugin — Snacks is reused (it is already a claudecode dependency), so don't reintroduce toggleterm.
 - **Terminal floats have a bufferline-style winbar** (`_G.TermWinbar`, set via each float's
   `win.wo.winbar = '%!v:lua.TermWinbar()'`): a filled top row of numbered, clickable tabs `[1] Term` /
-  `[2] Claude` for every open terminal. Clicks route through `_G.TermBarClick`
-  → `_G.TermGoto`; `{count}<C-t>` switches the same way (hides the current float, then opens the target).
-  Any terminal **running the `claude` CLI** (the dedicated slot-2 pane OR `claude` started in an ordinary
-  Snacks terminal) is labelled `[N] Claude` and gets the state colors — claude-ness (`term_running_claude`,
-  via `b:term_title`/TUI footer) is decoupled from the slot (`term_slot_of`; only the pane, `term_is_claude_pane`,
-  is pinned to slot 2). The `TermBarActive`/`TermBarInactive`/`TermBarFill` highlights are explicit
-  tokyonight-night colors (a blue active chip on a `#292e42` strip). The **inactive Claude tab
-  is colored by state** (focused tab stays blue) — when unfocused: `TermBarClaudeRunning` (orange) while
-  working, `TermBarClaudeAsking` (red) while asking a question, else the normal grey when idle — inferred by
-  `term_claude_state()` scanning the Claude buffer's bottom lines (`esc to interrupt` -> running, a selection-menu
-  footer `to navigate`/`to select` -> asking; claudecode.nvim exposes no state API; heuristic, may break if the
-  TUI text changes), kept fresh by a 500 ms
-  state-poll timer that `redrawstatus` on change and, when the focused terminal is the one that changed, sends
-  `^L` to repaint its TUI (React Ink leaves stale cells when a menu changes its height — auto-fix for the
-  non-refreshed screen, same as `<leader>al`). The same poll also **mirrors Claude's state onto nvim's tmux
-  window tab** when running inside tmux (`$TMUX`/`$TMUX_PANE`): it sets `window-status-style` on the pane's
-  window via `tmux set-option -w` (orange running / red asking, aggregated across all Claude terminals as
-  asking > running > idle; unset on idle and on `VimLeavePre`). tmux renders `window-status-style` only for
-  *inactive* windows, so the color shows exactly when "this tmux tab is not active" — no need to poll the
-  active window. Only takes effect if your `window-status-format` doesn't hardcode its own colors (the
-  tmux default respects the style). Helpers `term_is_claude_pane` / `term_running_claude` /
-  `term_slot_of` / `term_open_slots` / `term_hide_buf` /
-  `term_claude_state` back the bar and the terminal-mode `<C-t>` map. While editing (no terminal float
-  focused), `rbar_refresh` (`_G.TermRbarRefresh`) shows a small vertical box on the right edge with a padded
-  fully-colored chip per terminal labelled `1T`/`2C` (slot + Term/Claude) on a dark panel (`TermRbar*`, gap between chips), colored by Claude state, clickable (global `<LeftMouse>` -> `getmousepos` -> `TermGoto`),
-  so you can watch terminals/Claude-state while coding (a right-edge float; avoids statusline/tabline/laststatus). All terminal
-  floats are 95% size.
+  `[2] Claude` for every open terminal. Clicks route through `_G.TermBarClick` → `_G.TermGoto`;
+  `{count}<C-t>` switches the same way (hides the current float, then opens the target). The focused tab is
+  the blue `TermBarActive` chip, the rest are `TermBarInactive`, on a `#292e42` `TermBarFill` strip (all
+  tokyonight-night). A terminal **running the `claude` CLI** (the slot-2 pane OR `claude` started in an
+  ordinary Snacks terminal) is just labelled `[N] Claude` instead of `[N] Term` — claude-ness
+  (`term_running_claude`, via `b:term_title`/filetype) is decoupled from the slot (`term_slot_of`; only the
+  pane, `term_is_claude_pane`, is pinned to slot 2). Helpers `term_is_claude_pane` / `term_running_claude` /
+  `term_slot_of` / `term_open_slots` / `term_hide_buf` back the bar and the terminal-mode `<C-t>` map. While
+  editing (no terminal float focused), `rbar_refresh` (`_G.TermRbarRefresh`) shows a small vertical box on
+  the right edge — one neutral (`TermRbarTerm`) clickable chip per terminal labelled `1T`/`2C` on a dark
+  `TermRbarFill` panel, via global `<LeftMouse>` → `getmousepos` → `TermGoto` — so you can see open terminals
+  while coding without touching the statusline/tabline/laststatus. All terminal floats are 95% size.
+- **Claude run-state is NOT tracked inside nvim.** The old machinery — a 500 ms poll (`term_claude_state`
+  scraping the TUI footer), the orange/red `TermBarClaude*` tab/rbar colors, the `^L` auto-repaint on state
+  change, and the mirroring of state onto nvim's tmux window tab via `window-status-style` — was **removed**.
+  Claude's run-state is now surfaced by the external **`claude-tmux`** package (repo `~/workspace/claude-tmux`
+  → `github.com/ngocbh/claude-tmux`; installs scripts to `~/.local/bin`, a tmux snippet, and
+  `~/.claude/settings.json` hooks) which colors the tmux window tab + a status-right chip from Claude Code
+  hooks. **Do not re-add the nvim poll/mirroring — it conflicts with the package** (both set
+  `window-status-style` and fight).
 - **Movement keys are soft-wrap aware:** `j k $ ^ 0` are remapped to their `g`-prefixed visual-line
   variants in normal + visual mode.
 

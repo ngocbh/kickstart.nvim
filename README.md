@@ -39,10 +39,10 @@ On modern Linux (glibc ≥ 2.31), the official `neovim/neovim` nightly tarball w
 
 ### What happens on first launch
 - `vim.pack` clones every plugin into `~/.local/share/nvim/site/pack/core/opt/`
-- `mason.nvim` installs the LSPs declared in [`init.lua`](init.lua) (`lua_ls`, `basedpyright`, `stylua`)
+- `mason.nvim` installs the LSPs declared in [`init.lua`](init.lua) (`lua_ls`, `pyright`, `stylua`)
 - `nvim-treesitter` compiles parsers for: bash, c, css, html, java, javascript, json, lua, luadoc, markdown, python, rust, tsx, typescript, vim, vimdoc, yaml, etc.
 
-If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is installed.
+If the LSP for Python doesn't attach, run `:Mason` and confirm `pyright` is installed (pyright needs Node/`npm` on the host).
 
 ---
 
@@ -66,7 +66,7 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 ### Movement (soft-wrap aware)
 `j` / `k` / `$` / `^` / `0` are remapped to `gj` / `gk` / `g$` / `g^` / `g0` in normal + visual mode, so cursor moves by *visual line*. Lines wrap at word boundaries with the `↪` showbreak prefix.
 
-### LSP (Python via basedpyright, Lua via lua_ls)
+### LSP (Python via pyright, Lua via lua_ls)
 | Key | Action |
 |---|---|
 | `grd` | Go to definition |
@@ -90,22 +90,19 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `basedpyright` is
 `<C-t>` is a count-aware dispatcher backed by `Snacks.terminal` (floating, rounded border; terminals
 are 95% size, same as the Claude float). Every terminal float shows a **bufferline-style tab bar** at its
 top (its own row, distinct background) listing all open terminals — `[1] Term`, `[2] Claude`, … — with
-the focused one highlighted. Each tab is **clickable** to switch, or use `{count}<C-t>`. Any terminal
-**running the `claude` CLI** (the dedicated slot-2 pane, *or* `claude` started inside an ordinary
-terminal) is labelled `[N] Claude` and, when **not focused**, changes color by state — dark orange while
-Claude is working, red while it's asking you a question, normal grey when idle/finished — while the
-focused tab is always blue.
+the focused one highlighted (blue). Each tab is **clickable** to switch, or use `{count}<C-t>`. A terminal
+**running the `claude` CLI** (the dedicated slot-2 pane, *or* `claude` started inside an ordinary terminal)
+is simply labelled `[N] Claude` instead of `[N] Term`.
 
-While you're **editing (no terminal float open)**, a small vertical bar/box appears on the **right edge**
-with a small cell per terminal — `1T`, `2C` (slot + Term/Claude), each a fully-colored chip on a dark
-panel (with a gap between) — colored by Claude's state (orange working, red asking, grey idle), so you can
-watch terminals without opening one. **Click a cell** to switch to that terminal (or use `{count}<C-t>`). It hides itself inside terminal floats (which show the full tab bar as their winbar) and when
-no terminals are open.
+While you're **editing (no terminal float open)**, a small vertical bar appears on the **right edge** with
+a cell per terminal — `1T`, `2C` (slot + Term/Claude) — so you can see open terminals without opening one.
+**Click a cell** to switch (or use `{count}<C-t>`). It hides itself inside terminal floats (which show the
+full tab bar as their winbar) and when no terminals are open.
 
-If you run nvim **inside tmux**, Claude's state is also reflected onto nvim's **tmux window tab**: it turns
-orange while Claude is working and red while it's asking — but only while that tmux tab is *not* the active
-one (so you notice from another tab). It clears when Claude goes idle and when you quit nvim. No
-`~/.tmux.conf` change is needed (it sets the window's `window-status-style`, which the tmux default honors).
+> **Claude run-state coloring lives in tmux, not nvim.** The orange/red "working / asking" coloring (on the
+> tab bar, the right-edge bar, and the tmux window tab) was moved out to the standalone
+> [`claude-tmux`](https://github.com/ngocbh/claude-tmux) package, which colors the tmux window tab + a
+> status-right chip for **any** Claude in tmux (not just one embedded in nvim).
 
 | Key | Action |
 |---|---|

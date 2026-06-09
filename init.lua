@@ -443,9 +443,7 @@ do
       diagnostics = 'nvim_lsp',
       offsets = { { filetype = 'NvimTree', text = 'File Explorer', separator = true, text_align = 'left' } },
       -- Hide unnamed buffers (the "[No Name]" entries) from the top bar.
-      custom_filter = function(buf_number)
-        return vim.api.nvim_buf_get_name(buf_number) ~= ''
-      end,
+      custom_filter = function(buf_number) return vim.api.nvim_buf_get_name(buf_number) ~= '' end,
     },
   }
   vim.keymap.set('n', '<S-h>', '<cmd>BufferLineCyclePrev<cr>', { desc = 'Prev buffer' })
@@ -508,19 +506,19 @@ do
   end
 
   ---True if `buf` is the dedicated claudecode.nvim pane (always dispatcher slot 2).
-  local function term_is_claude_pane(buf)
-    return vim.bo[buf].filetype == 'claudecode' or vim.api.nvim_buf_get_name(buf):match 'claude' ~= nil
-  end
+  ---Identified ONLY by filetype -- never by buffer name, which is `term://<cwd>//...`
+  ---and so contains "claude" for *any* terminal opened in a claude-named directory
+  ---(that false-match put ordinary terminals on slot 2 and broke <C-t> close).
+  local function term_is_claude_pane(buf) return vim.bo[buf].filetype == 'claudecode' end
 
   ---True if the Claude CLI is running in `buf` -- either the dedicated pane, or
-  ---`claude` launched inside an ordinary shell terminal. The latter is detected by
-  ---the terminal title (Claude sets it) or, failing that, the Claude TUI footer
-  ---text. Such a terminal is labelled "Claude" in the bar and gets the same state
-  ---colors / repaint as the dedicated pane.
+  ---`claude` launched inside an ordinary shell terminal (which gets the "Claude"
+  ---label in the bar). The latter is detected by the Claude TUI footer *text* only --
+  ---NOT the buffer name/title, which contain the cwd and so falsely match in a
+  ---claude-named directory.
   local function term_running_claude(buf)
     if term_is_claude_pane(buf) then return true end
-    local title = vim.b[buf].term_title
-    if title and title:lower():find('claude', 1, true) then return true end
+    if vim.bo[buf].buftype ~= 'terminal' then return false end
     local n = vim.api.nvim_buf_line_count(buf)
     local bottom = table.concat(vim.api.nvim_buf_get_lines(buf, math.max(0, n - 12), n, false), '\n'):lower()
     return bottom:find('esc to interrupt', 1, true) ~= nil or bottom:find('? for shortcuts', 1, true) ~= nil or bottom:find('to navigate', 1, true) ~= nil
@@ -588,27 +586,6 @@ do
   -- than the panel so chips stay distinct with just a dark gap between them.
   vim.api.nvim_set_hl(0, 'TermRbarFill', { bg = '#16161e' })
   vim.api.nvim_set_hl(0, 'TermRbarTerm', { fg = '#c0caf5', bg = '#292e42' })
-  -- Claude-tab state colors, shown only when the Claude tab is NOT focused: dark
-  -- orange while Claude is working, red while it is asking you a question. When
-  -- idle/finished it just falls back to the normal grey inactive tab.
-  vim.api.nvim_set_hl(0, 'TermBarClaudeRunning', { fg = '#16161e', bg = '#ff9e64', bold = true })
-  vim.api.nvim_set_hl(0, 'TermBarClaudeAsking', { fg = '#16161e', bg = '#f7768e', bold = true })
-
-  ---Claude's state from its terminal `buf`, by scanning the live screen (bottom
-  ---lines) of its TUI: 'running' while the "esc to interrupt" footer is shown,
-  ---'asking' when a selection menu is up -- its footer reads "↑/↓ to navigate ·
-  ---Enter to select · Esc to cancel" (the idle input box only shows "? for
-  ---shortcuts") -- else 'idle'. Heuristic on rendered text; adjust the markers
-  ---below if the Claude Code TUI changes (claudecode.nvim exposes no state API).
-  local function term_claude_state(buf)
-    if not (buf and vim.api.nvim_buf_is_valid(buf)) then return 'idle' end
-    local n = vim.api.nvim_buf_line_count(buf)
-    local bottom = table.concat(vim.api.nvim_buf_get_lines(buf, math.max(0, n - 12), n, false), '\n'):lower()
-    if bottom:find('esc to interrupt', 1, true) then return 'running' end
-    if bottom:find('to navigate', 1, true) or bottom:find('to select', 1, true) or bottom:find('(y/n)', 1, true) then return 'asking' end
-    return 'idle'
-  end
-
   ---Switch to terminal `slot`: hide the current terminal float first (so floats
   ---don't stack), then toggle the target open. Used by `{count}<C-t>` and clicks.
   function _G.TermGoto(slot)
@@ -629,16 +606,7 @@ do
     local parts = {}
     for _, it in ipairs(items) do
       local active = it.buf == curbuf
-      local hl
-      if active then
-        hl = '%#TermBarActive#' -- focused tab is always the blue chip (no state color)
-      elseif it.claude then
-        -- inactive Claude tab: orange while working, red while asking, else grey (idle)
-        local st = term_claude_state(it.buf)
-        hl = (st == 'running' and '%#TermBarClaudeRunning#') or (st == 'asking' and '%#TermBarClaudeAsking#') or '%#TermBarInactive#'
-      else
-        hl = '%#TermBarInactive#'
-      end
+      local hl = active and '%#TermBarActive#' or '%#TermBarInactive#'
       local label = it.claude and 'Claude' or 'Term'
       parts[#parts + 1] = hl .. '%' .. it.slot .. '@v:lua.TermBarClick@ [' .. it.slot .. '] ' .. label .. ' %X'
     end
@@ -649,11 +617,11 @@ do
   function _G.TermBarClick(slot) _G.TermGoto(slot) end
 
   -- Thin vertical terminal bar on the right edge, shown while editing: one cell per
-  -- open terminal, labelled compactly `1T` / `2C` (slot + Term/Claude) and colored
-  -- by Claude state (orange running, red asking, grey idle). Hidden inside terminal
-  -- floats (those show the top winbar) and when no terminals are open. Plain buffer
-  -- + per-line extmark highlights; display-only -- switch with `{count}<C-t>`. Avoids
-  -- touching the statusline / tabline / laststatus, so nothing else changes.
+  -- open terminal, labelled compactly `1T` / `2C` (slot + Term/Claude). Hidden inside
+  -- terminal floats (those show the top winbar) and when no terminals are open. Plain
+  -- buffer + per-line extmark highlights; display-only -- switch with `{count}<C-t>`.
+  -- Avoids touching the statusline / tabline / laststatus, so nothing else changes.
+  -- (Claude run-state is now shown by the external `claude-tmux` package, not here.)
   local rbar = {}
   local rbar_ns = vim.api.nvim_create_namespace 'term_rbar'
   local function rbar_hide()
@@ -665,18 +633,13 @@ do
     if vim.bo[cur].buftype == 'terminal' or vim.fn.getcmdwintype() ~= '' then return rbar_hide() end
     local items = term_open_slots()
     if #items == 0 then return rbar_hide() end
-    -- Compact labels (`1T`, `2C`), their per-terminal state highlight, and slot.
+    -- Compact labels (`1T`, `2C`), their highlight, and slot.
     local labels, lhls, slots, maxlen = {}, {}, {}, 0
     for i, it in ipairs(items) do
       labels[i] = it.slot .. (it.claude and 'C' or 'T')
       slots[i] = it.slot
       maxlen = math.max(maxlen, #labels[i])
-      local hl = 'TermRbarTerm'
-      if it.claude then
-        local st = term_claude_state(it.buf)
-        hl = (st == 'running' and 'TermBarClaudeRunning') or (st == 'asking' and 'TermBarClaudeAsking') or 'TermRbarTerm'
-      end
-      lhls[i] = hl
+      lhls[i] = 'TermRbarTerm'
     end
     -- Lay out as fully-colored 1-row chips with a plain dark gap between them (no
     -- gap before the first or after the last, so the last chip has no leftover).
@@ -705,7 +668,18 @@ do
     for ln, hl in pairs(line_hl) do
       pcall(vim.api.nvim_buf_set_extmark, rbar.buf, rbar_ns, ln - 1, 0, { end_col = #lines[ln], hl_group = hl })
     end
-    local cfg = { relative = 'editor', anchor = 'NE', row = 1, col = vim.o.columns, width = cw, height = #lines, focusable = true, style = 'minimal', zindex = 35, noautocmd = true }
+    local cfg = {
+      relative = 'editor',
+      anchor = 'NE',
+      row = 1,
+      col = vim.o.columns,
+      width = cw,
+      height = #lines,
+      focusable = true,
+      style = 'minimal',
+      zindex = 35,
+      noautocmd = true,
+    }
     if rbar.win and vim.api.nvim_win_is_valid(rbar.win) then
       pcall(vim.api.nvim_win_set_config, rbar.win, cfg)
     else
@@ -734,73 +708,6 @@ do
     desc = 'Refresh the vertical terminal bar',
     callback = function() vim.schedule(rbar_refresh) end,
   })
-
-  -- Poll the state of every Claude terminal (the dedicated pane and any shell
-  -- terminal running `claude`). When any changes we (1) redraw the focused float's
-  -- winbar / the right-edge bar so the tab color updates promptly even when you're
-  -- watching from elsewhere, and (2) if the focused terminal is the one that
-  -- changed, send ^L to repaint its TUI. React Ink redraws in place and leaves stale
-  -- cells when its height changes (e.g. a question menu appears over the focused
-  -- pane); ^L (the same nudge as <leader>al) forces a clean repaint, and a state
-  -- change is exactly when that stale rendering happens, so this clears it.
-  -- When running inside tmux, also mirror Claude's state onto nvim's *tmux window
-  -- tab* so you notice from another tab: color the tab orange while Claude works /
-  -- red while it asks. We set `window-status-style` on the pane's window, which tmux
-  -- renders ONLY for inactive windows (the active one uses window-status-current-
-  -- style) -- so the color shows exactly when "this tmux tab is not active", with no
-  -- need to poll the active state. Cleared (option unset) when idle, and on exit.
-  -- Caveat: only takes effect if your window-status-format doesn't hardcode its own
-  -- colors (the default does respect window-status-style).
-  local tmux_pane = vim.env.TMUX and vim.env.TMUX_PANE
-  local tmux_last
-  local function tmux_notify(state)
-    if not tmux_pane or state == tmux_last then return end
-    tmux_last = state
-    if state == 'idle' then
-      vim.system { 'tmux', 'set-option', '-uw', '-t', tmux_pane, 'window-status-style' }
-    else
-      local style = state == 'asking' and 'fg=#1a1b26,bg=#f7768e,bold' or 'fg=#1a1b26,bg=#ff9e64,bold'
-      vim.system { 'tmux', 'set-option', '-w', '-t', tmux_pane, 'window-status-style', style }
-    end
-  end
-  if tmux_pane then
-    vim.api.nvim_create_autocmd('VimLeavePre', { desc = 'Clear Claude tmux tab color on exit', callback = function() tmux_notify 'idle' end })
-  end
-
-  local term_claude_states = {}
-  vim.fn.timer_start(500, function()
-    local cur = vim.api.nvim_get_current_buf()
-    local in_term = vim.bo[cur].buftype == 'terminal'
-    local changed, seen, agg = false, {}, 'idle'
-    for _, it in ipairs(term_open_slots()) do
-      if it.claude then
-        seen[it.buf] = true
-        local st = term_claude_state(it.buf)
-        -- Aggregate across all Claude terminals for the tmux tab (asking > running > idle).
-        if st == 'asking' then
-          agg = 'asking'
-        elseif st == 'running' and agg ~= 'asking' then
-          agg = 'running'
-        end
-        if term_claude_states[it.buf] ~= st then
-          term_claude_states[it.buf] = st
-          changed = true
-          if it.buf == cur then
-            local job = vim.b[it.buf].terminal_job_id
-            if job then pcall(vim.fn.chansend, job, '\012') end -- ^L -> repaint, clears stale cells
-          end
-        end
-      end
-    end
-    for b in pairs(term_claude_states) do
-      if not seen[b] then term_claude_states[b] = nil end
-    end
-    if changed then
-      if in_term then pcall(vim.cmd, 'redrawstatus') end
-      rbar_refresh()
-    end
-    tmux_notify(agg) -- dedups internally; clears to idle when no Claude is active/open
-  end, { ['repeat'] = -1 })
 
   -- Terminal dispatcher. Slot 2 = claudecode.nvim (floating); every other slot is
   -- a Snacks terminal. {count}<C-t> switches to terminal #count (TermGoto hides the
@@ -851,12 +758,8 @@ do
   -- all terminals in section 1, so no buffer-local override is needed.
   -- Darker background for the Claude pane so it visually separates from the editor.
   vim.api.nvim_set_hl(0, 'ClaudeBg', { bg = '#0d0e16' })
-  local function is_claude_buf(buf)
-    return vim.bo[buf].filetype == 'claudecode' or vim.api.nvim_buf_get_name(buf):match 'claude' ~= nil
-  end
-  local function style_claude_win(win)
-    vim.wo[win].winhighlight = 'Normal:ClaudeBg,NormalNC:ClaudeBg,SignColumn:ClaudeBg,EndOfBuffer:ClaudeBg'
-  end
+  local function is_claude_buf(buf) return vim.bo[buf].filetype == 'claudecode' end
+  local function style_claude_win(win) vim.wo[win].winhighlight = 'Normal:ClaudeBg,NormalNC:ClaudeBg,SignColumn:ClaudeBg,EndOfBuffer:ClaudeBg' end
 
   vim.api.nvim_create_autocmd('TermOpen', {
     pattern = '*',
@@ -926,9 +829,7 @@ do
   -- In NvimTree / netrw / oil, <leader>as adds the highlighted file or dir to Claude's context.
   vim.api.nvim_create_autocmd('FileType', {
     pattern = { 'NvimTree', 'neo-tree', 'oil', 'minifiles', 'netrw' },
-    callback = function(args)
-      vim.keymap.set('n', '<leader>as', '<cmd>ClaudeCodeTreeAdd<cr>', { buffer = args.buf, desc = '[A]I claude add file from tree' })
-    end,
+    callback = function(args) vim.keymap.set('n', '<leader>as', '<cmd>ClaudeCodeTreeAdd<cr>', { buffer = args.buf, desc = '[A]I claude add file from tree' }) end,
   })
   vim.keymap.set('n', '<leader>aa', '<cmd>ClaudeCodeDiffAccept<cr>', { desc = '[A]I claude diff [A]ccept' })
   vim.keymap.set('n', '<leader>ad', '<cmd>ClaudeCodeDiffDeny<cr>', { desc = '[A]I claude diff [D]eny' })
@@ -1281,22 +1182,13 @@ do
   local servers = {
     -- clangd = {},
     -- gopls = {},
-    basedpyright = {
+    pyright = {
       settings = {
-        basedpyright = {
+        python = {
           analysis = {
             typeCheckingMode = 'standard',
             diagnosticSeverityOverrides = {
-              reportAny = 'none',
-              reportExplicitAny = 'none',
-              reportImplicitOverride = 'none',
-              reportUnusedCallResult = 'none',
               reportMissingTypeStubs = 'none',
-              reportUnknownArgumentType = 'none',
-              reportUnknownMemberType = 'none',
-              reportUnknownVariableType = 'none',
-              reportUnknownParameterType = 'none',
-              reportMissingParameterType = 'none',
             },
           },
         },
@@ -1512,8 +1404,26 @@ do
 
   -- Ensure basic parsers are installed
   local parsers = {
-    'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc',
-    'python', 'javascript', 'typescript', 'tsx', 'json', 'yaml', 'css', 'rust', 'java',
+    'bash',
+    'c',
+    'diff',
+    'html',
+    'lua',
+    'luadoc',
+    'markdown',
+    'markdown_inline',
+    'query',
+    'vim',
+    'vimdoc',
+    'python',
+    'javascript',
+    'typescript',
+    'tsx',
+    'json',
+    'yaml',
+    'css',
+    'rust',
+    'java',
   }
   require('nvim-treesitter').install(parsers)
 
