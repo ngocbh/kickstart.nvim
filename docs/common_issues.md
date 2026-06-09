@@ -72,3 +72,52 @@ done
 ```
 
 Reopen the file; colors return immediately (no restart needed).
+
+---
+
+## `LSP[pyright] error ... INVALID_SERVER_MESSAGE id=N jsonrpc=2.0` spam
+
+**Symptom:** A steady stream of error echoes while editing Python (the `id`
+climbs by one every second or two), e.g.
+
+```
+LSP[pyright]: Error INVALID_SERVER_MESSAGE: { id = 12, jsonrpc = "2.0" }
+```
+
+The same error also fires for `basedpyright` and `GitHub Copilot` — that it spans
+multiple unrelated servers is the tell that it is **not** a per-server config bug.
+
+**Root cause:** a bug in the **Meta-patched** Neovim build, *not* this config and
+*not* pyright. pyright sends spec-valid empty replies of the form
+`{"jsonrpc":"2.0","id":N,"result":null}` — most often to
+`textDocument/documentHighlight`, which `init.lua` fires on every `CursorHold`;
+pyright returns `result: null` whenever the cursor isn't on a symbol (hence the
+once-per-second cadence). The `-- START: Meta specific patch.` block in
+`/usr/share/nvim/runtime/lua/vim/lsp/rpc.lua` converts `decoded.result` from
+`vim.NIL` → `nil` **before** the response-validity check that requires
+`result ~= nil`. Stock Neovim relied on `vim.NIL` being truthy there; the patch
+nils it first, so the valid null-result reply matches neither "response" nor
+"notification" and falls through to `INVALID_SERVER_MESSAGE`, which
+`Client:write_error` echoes unconditionally (a per-server `on_error` can't stop
+it). Net effect is mostly cosmetic, but `documentHighlight` silently does nothing
+for Python because its reply is discarded instead of dispatched.
+
+**Proper fix (Meta build, needs root):** delete the three-line
+`if decoded.result == vim.NIL then decoded.result = nil end` block in that
+`rpc.lua` (the `error` → nil conversion just above it is fine). The file is
+root-owned and is overwritten on the next nvim package update, so this is worth
+reporting to whoever owns the Meta nvim package rather than hand-patching.
+
+**Workaround in this config:** the `LspAttach` handler in `init.lua` (SECTION 5)
+wraps each client's `write_error` to swallow **only** `INVALID_SERVER_MESSAGE`
+and pass every other error through. This fully silences the noise for all servers
+while keeping real errors visible. Remove that block once the upstream `rpc.lua`
+patch is fixed.
+
+**How to confirm it's this and not something else:**
+
+```sh
+grep INVALID_SERVER_MESSAGE ~/.local/state/nvim/lsp.log | tail
+```
+
+Multiple distinct `LSP[...]` server names with the same code = the build bug above.

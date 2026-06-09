@@ -1142,6 +1142,23 @@ do
       --
       -- When you move your cursor, the highlights will be cleared (the second autocommand).
       local client = vim.lsp.get_client_by_id(event.data.client_id)
+
+      -- WORKAROUND: this host runs a Meta-patched nvim whose vim/lsp/rpc.lua nils out
+      -- `result` (vim.NIL -> nil) before its response-validity check, so spec-valid
+      -- `{"id":N,"result":null}` replies (e.g. pyright's documentHighlight when off a symbol)
+      -- get flagged as INVALID_SERVER_MESSAGE and echoed as an error. Client:write_error runs
+      -- unconditionally (a per-server on_error can't stop it), so we wrap it per client to
+      -- swallow ONLY that false positive and pass every other error through. See
+      -- docs/common_issues.md. Remove once the upstream rpc.lua patch is fixed.
+      if client and not client._suppress_invalid_msg then
+        client._suppress_invalid_msg = true
+        local write_error = client.write_error
+        client.write_error = function(self, code, err)
+          if vim.lsp.rpc.client_errors[code] == 'INVALID_SERVER_MESSAGE' then return end
+          return write_error(self, code, err)
+        end
+      end
+
       if client and client:supports_method('textDocument/documentHighlight', event.buf) then
         local highlight_augroup = vim.api.nvim_create_augroup('kickstart-lsp-highlight', { clear = false })
         vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
