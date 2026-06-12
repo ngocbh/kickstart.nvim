@@ -116,7 +116,7 @@ full tab bar as their winbar) and when no terminals are open.
 ### Claude Code (AI / Claude prefix)
 | Key | Action |
 |---|---|
-| `<space>ac` | Toggle Claude in the **right sidebar** |
+| `<space>ac` | **Copy** a Claude `@`-mention to the clipboard — current file+line (normal), selected range (visual), or the node under cursor (NvimTree) — to paste into any other Claude Code (e.g. another tmux pane). Does **not** toggle Claude. |
 | `2<C-t>` | Toggle Claude as a **floating** window (see terminal dispatcher above) |
 | `<space>af` | Focus the Claude pane |
 | `<space>ar` | Resume previous session |

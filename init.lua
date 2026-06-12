@@ -431,6 +431,13 @@ do
       api.config.mappings.default_on_attach(bufnr)
       vim.keymap.del('n', '<C-t>', { buffer = bufnr })
       vim.keymap.set('n', '<C-t>', function() _G.TermToggle() end, { buffer = bufnr, desc = 'Toggle terminal ({count}; 2 = Claude)' })
+      -- <leader>ac copies a Claude @-mention of the node under the cursor to the
+      -- clipboard (to paste into any other Claude Code). Mirrors the global map
+      -- below; _G.ClaudeCopyMention is defined in the Claude Code section.
+      vim.keymap.set('n', '<leader>ac', function()
+        local node = api.tree.get_node_under_cursor()
+        _G.ClaudeCopyMention(node and node.absolute_path)
+      end, { buffer = bufnr, desc = '[A]I [C]opy @-mention of file for Claude' })
     end,
   }
   vim.keymap.set('n', '<leader>e', '<cmd>NvimTreeToggle<cr>', { desc = 'Toggle file [E]xplorer' })
@@ -818,7 +825,59 @@ do
 
   -- Nudge any visible terminal to redraw when nvim itself is resized.
   vim.api.nvim_create_autocmd('VimResized', { callback = function() vim.cmd 'redraw!' end })
-  vim.keymap.set('n', '<leader>ac', '<cmd>ClaudeCode<cr>', { desc = '[A]I [C]laude toggle (sidebar)' })
+  -- Copy a claudecode-style @-mention of the current location to the system
+  -- clipboard, so it can be pasted into ANY other Claude Code instance (e.g. one
+  -- running in another tmux pane) — they no longer have to live inside nvim.
+  -- The format mirrors what claudecode.nvim sends over its websocket (its
+  -- `_format_path_for_at_mention` + the at_mention lineStart/lineEnd params):
+  --   * path is relative to cwd when the file is under it, else absolute;
+  --   * a directory keeps a trailing '/';
+  --   * line info is appended as #L<line> (single line) or #L<start>-<end> (range).
+  -- Claude Code parses `@path` mentions out of pasted text and pulls the file into
+  -- context (see its docs); the #L suffix tells it which lines to focus on.
+  _G.ClaudeCopyMention = function(abs_path, start_line, end_line)
+    if not abs_path or abs_path == '' then
+      vim.notify('Claude: no file to copy a mention for', vim.log.levels.WARN)
+      return
+    end
+    abs_path = vim.fn.fnamemodify(abs_path, ':p')
+    local is_dir = vim.fn.isdirectory(abs_path) == 1
+    local clean = is_dir and (abs_path:gsub('/$', '')) or abs_path
+    local cwd = vim.fn.getcwd()
+    local path = clean
+    if clean == cwd then
+      path = './'
+    elseif vim.startswith(clean, cwd .. '/') then
+      path = clean:sub(#cwd + 2)
+    end
+    if is_dir then
+      if not path:match '/$' then path = path .. '/' end
+      start_line, end_line = nil, nil -- line numbers are meaningless for a directory
+    end
+    local mention = '@' .. path
+    if start_line then
+      mention = mention .. '#L' .. start_line
+      if end_line and end_line ~= start_line then mention = mention .. '-' .. end_line end
+    end
+    vim.fn.setreg('+', mention) -- system clipboard (clipboard=unnamedplus / OSC52 over SSH)
+    vim.notify('Copied for Claude: ' .. mention)
+  end
+  -- <leader>ac copies a Claude @-mention to the clipboard: the current file+line in
+  -- normal mode, the selected range in visual mode, the node under cursor in
+  -- NvimTree. It no longer toggles Claude — that is 2<C-t> (terminal dispatcher).
+  vim.keymap.set(
+    'n',
+    '<leader>ac',
+    function() _G.ClaudeCopyMention(vim.api.nvim_buf_get_name(0), vim.fn.line '.') end,
+    { desc = '[A]I [C]opy @-mention (file:line) for Claude' }
+  )
+  vim.keymap.set('v', '<leader>ac', function()
+    local s, e = vim.fn.line 'v', vim.fn.line '.'
+    if s > e then
+      s, e = e, s
+    end
+    _G.ClaudeCopyMention(vim.api.nvim_buf_get_name(0), s, e)
+  end, { desc = '[A]I [C]opy @-mention (selection) for Claude' })
   -- Claude as a floating window is reachable via 2<C-t> (see the terminal dispatcher).
   vim.keymap.set('n', '<leader>af', '<cmd>ClaudeCodeFocus<cr>', { desc = '[A]I claude [F]ocus' })
   vim.keymap.set('n', '<leader>ar', '<cmd>ClaudeCode --resume<cr>', { desc = '[A]I claude [R]esume' })

@@ -142,7 +142,9 @@ vim.keymap.set('n', '<leader>gh', '<cmd>DiffviewFileHistory %<cr>')
 vim.keymap.set('n', '<leader>gH', '<cmd>DiffviewFileHistory<cr>')
 
 -- Claude Code (full set under <leader>a*)
--- <leader>ac toggle, <leader>af focus, <leader>ar resume, <leader>aC continue,
+-- <leader>ac COPY @-mention to clipboard (file:line / selection / tree node, via
+--   _G.ClaudeCopyMention — paste into any other Claude Code; does NOT toggle),
+-- <leader>af focus, <leader>ar resume, <leader>aC continue,
 -- <leader>am select model, <leader>ab add buffer, <leader>as send/tree-add,
 -- <leader>aa accept diff, <leader>ad deny diff
 ```
@@ -229,8 +231,12 @@ and looks like the editor's bufferline: a filled bar of tabs `[1] Term`, `[2] Cl
 > by Claude Code hooks, for **any** Claude running in tmux. Don't re-add the nvim
 > poll/mirroring: both set `window-status-style` and would fight.
 
-`<leader>ac` still opens Claude in the right **sidebar**; the float route is
-`2<C-t>`.
+`<leader>ac` no longer opens Claude — it **copies a `@`-mention to the clipboard**
+(`_G.ClaudeCopyMention`): the current file+line (normal), the selected range
+(visual, `#L<start>-<end>`), or the NvimTree node under the cursor. The path is
+cwd-relative when under cwd / absolute otherwise, matching the format
+claudecode.nvim sends over its websocket — so it pastes cleanly into any other
+Claude Code (e.g. another tmux pane). Toggling Claude is now `2<C-t>` (float).
 
 ## 7. Claude pane autocmds
 
