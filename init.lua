@@ -877,6 +877,8 @@ do
       s, e = e, s
     end
     _G.ClaudeCopyMention(vim.api.nvim_buf_get_name(0), s, e)
+    -- Leave visual mode afterwards, the way `y` clears the selection once done.
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Esc>', true, false, true), 'n', false)
   end, { desc = '[A]I [C]opy @-mention (selection) for Claude' })
   -- Claude as a floating window is reachable via 2<C-t> (see the terminal dispatcher).
   vim.keymap.set('n', '<leader>af', '<cmd>ClaudeCodeFocus<cr>', { desc = '[A]I claude [F]ocus' })

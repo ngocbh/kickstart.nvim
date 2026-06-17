@@ -121,3 +121,65 @@ grep INVALID_SERVER_MESSAGE ~/.local/state/nvim/lsp.log | tail
 ```
 
 Multiple distinct `LSP[...]` server names with the same code = the build bug above.
+
+---
+
+## pyright fails to start/install — `node: symbol lookup error ... undefined symbol: sqlite3session_attach`
+
+**Symptom:** Opening a Python file, pyright never attaches; the message area /
+`:messages` (or wherever the LSP/Mason error surfaces) shows something like:
+
+```
+/home/<you>/.conda/envs/<env>/bin/node: symbol lookup error:
+.../lib/libnode.so.147: undefined symbol: sqlite3session_attach
+```
+
+pyright is a Node program, so this fires when Mason tries to **install** or **run**
+pyright-langserver. It only happens when nvim is launched with a conda env active
+whose `node` is broken.
+
+**Root cause:** **not** this config and **not** pyright — a broken `libsqlite3` in
+the active conda env. Modern Node (v22.5+) bundles the built-in `node:sqlite`
+module, whose `libnode.so` dynamically links `libsqlite3.so.0` and needs the
+SQLite **session** extension symbols (`sqlite3session_*`). If the env's
+`libsqlite3` was built **without** `SQLITE_ENABLE_SESSION`, those symbols are
+missing and `node` aborts at load time on *every* invocation. (The env's *Python*
+sqlite is unaffected — Python's `_sqlite3` doesn't use the session API.)
+
+Seen on this host: env `hstu` had `libsqlite 3.53.2 h0c1763c_0` whose on-disk
+`libsqlite3.so.3.53.2` was a wrong/corrupt copy (1,510,904 B, no session symbol),
+while env `ide` had the **same** conda build string with the correct artifact
+(1,766,648 B, session symbol present). Same package record, different file.
+
+**How to diagnose:**
+
+```sh
+ENV=~/.conda/envs/<env>
+$ENV/bin/node --version                                   # crashes = broken
+nm -D $ENV/lib/libsqlite3.so.3.53.2 | grep -c sqlite3session_attach   # 0 = no session
+# find a healthy node/libsqlite in another env to copy from:
+for f in ~/.conda/envs/*/lib/libsqlite3.so.3.*; do
+  echo -n "$f: "; nm -D "$f" 2>/dev/null | grep -c sqlite3session_attach
+done
+```
+
+**Fix (surgical, offline, no dependency changes)** — if another env has the
+*same* `libsqlite` build with the correct (session-enabled) file, drop it in over
+the broken one. Touches exactly one file, no solver, no risk to pinned packages:
+
+```sh
+H=~/.conda/envs/hstu/lib/libsqlite3.so.3.53.2     # broken
+I=~/.conda/envs/ide/lib/libsqlite3.so.3.53.2      # good (same conda build)
+mv "$H" "$H.broken-nosession.bak"                 # reversible backup
+cp -p "$I" "$H"
+nm -D "$H" | grep -c sqlite3session_attach        # expect 1
+~/.conda/envs/hstu/bin/node --version             # now works
+```
+
+Restart nvim **with the env active**; Mason installs pyright cleanly. (Alternative
+proper fix: `conda install -n <env> --force-reinstall libsqlite` — slower, needs
+network, and conda 4.x's classic solver may propose extra changes.)
+
+**Related:** the LSP note in `CLAUDE.md` covers the basedpyright fallback for
+hosts where node/npm is unavailable entirely; that's a different failure (no node)
+than this (node present but broken).
