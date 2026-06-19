@@ -236,3 +236,60 @@ Then re-run the install (`:TSUpdate` / `:TSInstall <lang>`) — it compiles clea
 `npm install`/upgrade of `tree-sitter-cli` overwrites it and the error returns —
 just re-run the `polyfill-glibc --target-glibc=2.17` step on the new binary. The
 original is kept at `tree-sitter.orig` alongside it.
+
+---
+
+## Yank doesn't reach the local clipboard over SSH (but tmux copy does)
+
+**Symptom:** Working over SSH inside tmux, yanking in nvim (`yy`, `y`) never
+shows up in the **local** machine's clipboard — but selecting text with tmux's own
+copy-mode *does* reach it. So the terminal clearly supports remote clipboard, yet
+nvim yanks vanish.
+
+**Root cause:** **not** this config — a tmux setting. `init.lua` sets
+`clipboard = 'unnamedplus'` (SECTION 1), and over SSH Neovim auto-enables its
+built-in **OSC 52** clipboard provider (no `xclip`/`wl-copy` needed), so every
+yank already emits an OSC 52 escape sequence aimed at the local clipboard. The
+blocker is tmux's `set-clipboard` option, whose default is **`external`**:
+
+- `external` — tmux sets the outer terminal's clipboard for **its own**
+  copy-mode, but **ignores OSC 52 sent by apps running inside tmux**. (This is the
+  exact split seen: tmux copy works, nvim yank is dropped.)
+- `on` — same outer-terminal behavior **plus** it forwards inner apps' OSC 52 out
+  to the local terminal. Strict superset of `external`.
+
+**How to diagnose:**
+
+```sh
+tmux show -sv set-clipboard          # "external" (the default) = the bug
+echo "$SSH_TTY"                       # non-empty → nvim auto-picks OSC 52
+# inside nvim: confirms the OSC 52 provider is active (prints 2):
+nvim --headless -u init.lua -c 'lua print(vim.g.loaded_clipboard_provider)' -c 'qa'
+```
+
+**Fix (one tmux setting):** flip `set-clipboard` to `on`. Add to `~/.tmux.conf`
+(it's a *server* option, hence `-s`):
+
+```tmux
+set -s set-clipboard on
+```
+
+and apply it to the already-running server without a restart:
+
+```sh
+tmux set -s set-clipboard on && tmux show -sv set-clipboard   # -> on
+```
+
+New yanks land in the local clipboard immediately; no nvim restart needed (the
+provider was already active).
+
+**Caveats:**
+
+- The **local** terminal must support OSC 52 (Ghostty / iTerm2 / kitty / WezTerm
+  / recent xterm do). If tmux's own copy already reaches the clipboard, OSC 52 to
+  the outer terminal is supported.
+- This fixes the **yank → clipboard** direction only. Pasting the system clipboard
+  *into* nvim still uses the terminal's own paste (Ctrl-Shift-V / bracketed paste
+  in insert mode), not OSC 52 read — which is deliberate, since OSC 52 reads make
+  nvim hang with "Waiting for OSC 52 response from the terminal…" on terminals
+  that don't answer.
