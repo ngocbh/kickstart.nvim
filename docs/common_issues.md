@@ -183,3 +183,56 @@ network, and conda 4.x's classic solver may propose extra changes.)
 **Related:** the LSP note in `CLAUDE.md` covers the basedpyright fallback for
 hosts where node/npm is unavailable entirely; that's a different failure (no node)
 than this (node present but broken).
+
+---
+
+## Treesitter parser build fails — `tree-sitter: /lib64/libc.so.6: version 'GLIBC_2.xx' not found`
+
+**Symptom:** Installing/updating any parser (`:TSUpdate`, `:TSInstall <lang>`, or
+the auto-install on first open) fails at the compile step. The error names the
+`tree-sitter` CLI binary and a string of missing glibc versions, e.g.:
+
+```
+[nvim-treesitter/install/groovy] error: Error during "tree-sitter build":
+.../tree-sitter-cli/tree-sitter: /lib64/libm.so.6: version `GLIBC_2.29' not found
+.../tree-sitter-cli/tree-sitter: /lib64/libc.so.6: version `GLIBC_2.34' not found
+...
+```
+
+**Root cause:** **not** this config — a host/glibc mismatch. nvim-treesitter is
+pinned to `main`, which compiles parsers from source by shelling out to the
+`tree-sitter` CLI. The CLI binary (installed via npm into the conda env at
+`.conda/envs/<env>/lib/node_modules/tree-sitter-cli/tree-sitter`) was built
+against a **newer glibc than this HPC node provides**. Seen on radev: node glibc
+is **2.28** (`ldd --version`), but the prebuilt `tree-sitter` imports symbols up
+to **GLIBC_2.34**, so it can't even start — every parser build dies before doing
+any work.
+
+**How to diagnose:**
+
+```sh
+ldd --version | head -1                                   # host glibc (e.g. 2.28)
+BIN=~/.conda/envs/ide/lib/node_modules/tree-sitter-cli/tree-sitter
+"$BIN" --version                                          # crashes with the GLIBC error
+```
+
+**Fix (offline, no reinstall):** patch the binary's glibc symbol imports down to
+a version the host satisfies, using
+[`polyfill-glibc`](https://github.com/corsix/polyfill-glibc) (a local build lives
+at `~/radev/trimkv/src/polyfill-glibc/polyfill-glibc`):
+
+```sh
+PFG=~/radev/trimkv/src/polyfill-glibc/polyfill-glibc
+BIN=~/.conda/envs/ide/lib/node_modules/tree-sitter-cli/tree-sitter
+cp -n "$BIN" "$BIN.orig"                                  # reversible backup
+"$PFG" --target-glibc=2.17 "$BIN"                         # rewrite imports to 2.17
+"$PFG" --print-imports "$BIN" | grep -E 'GLIBC_2\.(29|3[0-9])'   # expect: nothing
+"$BIN" --version                                          # now prints e.g. tree-sitter 0.25.3
+```
+
+Then re-run the install (`:TSUpdate` / `:TSInstall <lang>`) — it compiles cleanly.
+
+**Caveat:** this patches the binary **in place inside the conda env**. Any
+`npm install`/upgrade of `tree-sitter-cli` overwrites it and the error returns —
+just re-run the `polyfill-glibc --target-glibc=2.17` step on the new binary. The
+original is kept at `tree-sitter.orig` alongside it.
