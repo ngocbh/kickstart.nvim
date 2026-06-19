@@ -810,6 +810,11 @@ do
       if not is_claude_buf(args.buf) then return end
       local win = vim.api.nvim_get_current_win()
       style_claude_win(win)
+      -- Re-assert the terminal tab bar. claudecode only applies the winbar from
+      -- snacks_win_opts on first creation; after the pane is wiped on exit and
+      -- recreated (2<C-t>), the window-local option is lost, so the bar vanishes.
+      -- Setting it on every BufWinEnter keeps `[2] Claude` showing across recreates.
+      vim.wo[win].winbar = '%!v:lua.TermWinbar()'
       vim.defer_fn(function()
         if not (vim.api.nvim_buf_is_valid(args.buf) and vim.api.nvim_win_is_valid(win)) then return end
         if vim.api.nvim_win_get_buf(win) ~= args.buf then return end
