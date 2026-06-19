@@ -118,6 +118,11 @@ do
   -- Don't show the mode, since it's already in the status line
   vim.o.showmode = false
 
+  -- Reclaim the bottom row: hide the command line until it's actually needed
+  -- (typing `:`, a search, or a message). With cmdheight=1 (the default) that row
+  -- sits empty below the statusline. Set to 1 if you prefer a persistent cmdline.
+  vim.o.cmdheight = 0
+
   -- Sync clipboard between OS and Neovim.
   --  Schedule the setting after `UiEnter` because it can increase startup-time.
   --  Remove this option if you want your OS clipboard to remain independent.
