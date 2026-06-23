@@ -25,7 +25,7 @@ source ~/.bashrc
 # 3. tree-sitter CLI (parsers compile from source on first run; needs rustc 1.87+)
 rustup update stable    # or install rustup first via https://rustup.rs
 BINDGEN_EXTRA_CLANG_ARGS="-I/usr/lib/gcc/x86_64-redhat-linux/8/include -I/usr/include" \
-  cargo install tree-sitter-cli --locked
+  cargo install tree-sitter-cli@0.22.6 --locked
 
 # 4. Claude Code CLI (optional, only if you want the claudecode.nvim plugin)
 #    Follow https://docs.claude.com/en/docs/claude-code/setup ; the binary must
