@@ -127,7 +127,53 @@ do
   --  Schedule the setting after `UiEnter` because it can increase startup-time.
   --  Remove this option if you want your OS clipboard to remain independent.
   --  See `:help 'clipboard'`
-  vim.schedule(function() vim.o.clipboard = 'unnamedplus' end)
+  --
+  -- On headless hosts (SSH/devserver) there is no DISPLAY and no xclip/xsel/wl-copy,
+  -- so nvim has no clipboard provider and yanks to `+` silently go nowhere. Force the
+  -- built-in OSC 52 provider so the terminal (tmux/iTerm/Kitty/WezTerm/Ghostty/etc.)
+  -- forwards yanks to the host clipboard over the escape-sequence channel. Paste from
+  -- the OS clipboard via the terminal's own paste (Cmd/Ctrl-V) -- OSC 52 read is
+  -- blocked by most terminals for security, so we stub paste to the unnamed register.
+  vim.schedule(function()
+    vim.o.clipboard = 'unnamedplus'
+    -- Yanks to `+` need to reach the laptop clipboard. On this headless host
+    -- there is no DISPLAY/Wayland and no xclip/wl-copy, so the only path is
+    -- OSC 52 forwarded through tmux to the outer terminal (Ghostty here).
+    --
+    -- Key gotchas hit while wiring this up:
+    --   * On this Meta-patched nvim AppImage, `/dev/tty` is not openable from
+    --     the nvim process. Use stdout (which IS the controlling pty) instead.
+    --   * Some terminals only honor OSC 52 when terminated with BEL (\007),
+    --     not ST (\e\). nvim's built-in osc52 provider uses ST, which Ghostty
+    --     does not honor over tmux passthrough -- so the bytes arrive at the
+    --     terminal and are silently dropped. We emit with BEL.
+    --   * `tmux load-buffer -w` would normally also forward as OSC 52, but on
+    --     this server it intermittently returns "server exited unexpectedly".
+    --     We skip tmux and write directly through nvim's stdout; tmux still
+    --     passes the sequence through to Ghostty (set-clipboard=external).
+    --
+    -- OSC 52 *read* (paste from system clipboard to nvim) is intentionally a
+    -- no-op: most terminals block it for security, and the wait-for-reply call
+    -- freezes nvim for ~1s on every `"+p`. Use the terminal's own paste
+    -- (Cmd/Ctrl-V) for OS->nvim direction.
+    local function copy(reg)
+      local target = reg == '+' and 'c' or 'p'
+      return function(lines)
+        local s = table.concat(lines, '\n')
+        local seq = string.format('\027]52;%s;%s\007', target, vim.base64.encode(s))
+        io.stdout:write(seq)
+        io.stdout:flush()
+      end
+    end
+    local function paste(reg)
+      return function() return vim.split(vim.fn.getreg(reg, 1, true) or '', '\n') end
+    end
+    vim.g.clipboard = {
+      name = 'OSC 52 (BEL via stdout)',
+      copy = { ['+'] = copy '+', ['*'] = copy '*' },
+      paste = { ['+'] = paste '+', ['*'] = paste '*' },
+    }
+  end)
 
   -- Enable break indent
   vim.o.breakindent = true
@@ -420,7 +466,8 @@ do
   vim.g.loaded_netrwPlugin = 1
   vim.pack.add { gh 'nvim-tree/nvim-tree.lua' }
   require('nvim-tree').setup {
-    view = { side = 'left', width = 30 },
+    view = { side = 'left', width = 30, preserve_window_proportions = true },
+    actions = { open_file = { resize_window = false } },
     renderer = {
       icons = { show = { git = false } },
       highlight_git = 'name', -- color the filename by git status (greys out gitignored)
