@@ -1225,6 +1225,32 @@ do
   vim.pack.add { gh 'j-hui/fidget.nvim' }
   require('fidget').setup {}
 
+  -- Global fallbacks for the `gr*` LSP keymaps.
+  -- The LspAttach autocmds below (and the telescope-lsp-attach autocmd in section 4)
+  -- install buffer-local `gr*` maps that shadow these whenever a language server is
+  -- attached. Without an LSP, these globals fire instead — which stops vanilla
+  -- `gr{char}` (virtual-replace, which silently overwrites the character under the
+  -- cursor) from clobbering text. Where an in-file builtin exists we degrade to it
+  -- (grd -> gd, grD -> gD, grr -> *); otherwise we just emit a notice.
+  local function lsp_fallback(keys, label)
+    return function()
+      if keys then
+        vim.notify('LSP not attached — falling back to `' .. keys .. '` (' .. label .. ')', vim.log.levels.WARN)
+        vim.cmd('normal! ' .. keys)
+      else
+        vim.notify('LSP not attached — ' .. label .. ' needs a language server', vim.log.levels.WARN)
+      end
+    end
+  end
+
+  vim.keymap.set('n', 'grd', lsp_fallback('gd', 'definition in file'), { desc = 'LSP: [G]oto [D]efinition (fallback: gd)' })
+  vim.keymap.set('n', 'grD', lsp_fallback('gD', 'declaration in file'), { desc = 'LSP: [G]oto [D]eclaration (fallback: gD)' })
+  vim.keymap.set('n', 'grr', lsp_fallback('*', 'search word in file'), { desc = 'LSP: [G]oto [R]eferences (fallback: *)' })
+  vim.keymap.set('n', 'gri', lsp_fallback(nil, '[G]oto [I]mplementation'), { desc = 'LSP: [G]oto [I]mplementation (needs LSP)' })
+  vim.keymap.set('n', 'grt', lsp_fallback(nil, '[G]oto [T]ype Definition'), { desc = 'LSP: [G]oto [T]ype Definition (needs LSP)' })
+  vim.keymap.set('n', 'grn', lsp_fallback(nil, '[R]e[n]ame'), { desc = 'LSP: [R]e[n]ame (needs LSP)' })
+  vim.keymap.set({ 'n', 'x' }, 'gra', lsp_fallback(nil, 'Code [A]ction'), { desc = 'LSP: Code [A]ction (needs LSP)' })
+
   --  This function gets run when an LSP attaches to a particular buffer.
   --    That is to say, every time a new file is opened that is associated with
   --    an lsp (for example, opening `main.rs` is associated with `rust_analyzer`) this

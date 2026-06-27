@@ -69,6 +69,13 @@ modules and are mostly disabled.
   to install (fall back to basedpyright if so). Strict noise is trimmed via
   `python.analysis.diagnosticSeverityOverrides` (currently `reportMissingTypeStubs = 'none'`,
   `typeCheckingMode = 'standard'`) — preserve/extend those when touching Python LSP config.
+- **`gr*` keymaps have global no-LSP fallbacks.** The `gr*` family (`grd`/`grr`/`gri`/`grt`/`grn`/
+  `gra`/`grD`) is set buffer-locally only on `LspAttach` (section 4 telescope autocmd + section 5).
+  Without an LSP those keys would fall through to vanilla `gr{char}` (virtual-replace) and clobber the
+  char under the cursor — so section 5 registers **global** fallbacks via a `lsp_fallback` helper that
+  the buffer-local LSP maps shadow when a server attaches. No-LSP behavior: degrade to an in-file
+  builtin where one fits (`grd`→`gd`, `grD`→`gD`, `grr`→`*`), else just notify; always emit an
+  `LSP not attached` message. Don't drop these globals — they're what stops the destructive default.
 - **`<C-t>` is a count-aware terminal dispatcher**, not a plain toggle: `N<C-t>` toggles
   `Snacks.terminal` slot N (each `count` is its own persistent terminal, shown as tab `[N] Term` in the
   bar), and slot 2 is reserved for Claude Code as a floating window. There is no dedicated terminal

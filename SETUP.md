@@ -69,6 +69,15 @@ block). See the file for current line numbers.
   },
   ```
 
+- **`gr*` no-LSP fallbacks.** The `gr*` keymaps (`grd`/`grr`/`gri`/`grt`/`grn`/`gra`/`grD`)
+  are buffer-local and only set on `LspAttach`. Without an LSP they used to fall through
+  to vanilla Vim's `gr{char}` (virtual-replace), so e.g. `grd` silently overwrote the
+  character under the cursor with `d`. Section 5 now registers **global** fallbacks (via a
+  `lsp_fallback` helper) that the buffer-local LSP maps shadow when a server is attached.
+  Without an LSP they degrade to an in-file builtin where one exists (`grd`→`gd`,
+  `grD`→`gD`, `grr`→`*`) or print a notice (`gri`/`grt`/`grn`/`gra`), and always emit a
+  `LSP not attached` message.
+
 ## 4. Treesitter
 
 - Extended parsers list to: `bash, c, diff, html, lua, luadoc, markdown,

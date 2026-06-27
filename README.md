@@ -77,6 +77,11 @@ If the LSP for Python doesn't attach, run `:Mason` and confirm `pyright` is inst
 | `grn` | Rename symbol |
 | `K` | Hover docs |
 
+When no LSP is attached, the `gr*` keys fall back to a built-in instead of vanilla
+Vim's `gr{char}` (which would overwrite the character under the cursor): `grd`→`gd`,
+`grD`→`gD`, `grr`→`*`. The rest (`gri`/`grt`/`gra`/`grn`) just print a notice. Each
+fallback emits a `LSP not attached` message.
+
 ### Git
 | Key | Action |
 |---|---|
